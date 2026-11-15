@@ -14,7 +14,7 @@ interface EquityChartProps {
   initialCapital: number
 }
 
-export function EquityChart({ equity, initialCapital }: EquityChartProps) {
+export function EquityChart({ equity, initialCapital: _initialCapital }: EquityChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null)
@@ -74,7 +74,7 @@ export function EquityChart({ equity, initialCapital }: EquityChartProps) {
       })),
     )
     chartRef.current?.timeScale().fitContent()
-  }, [equity, initialCapital])
+  }, [equity])
 
   return <div className="equity-chart" ref={containerRef} aria-label="Curva de equity" />
 }
