@@ -1,5 +1,6 @@
 import type { BacktestRequest, BacktestResponse, Bar, Signal } from '../types'
 import { buildEquityCurve, computeMetrics, signalsToTrades } from './metrics'
+import { normalizeIndicators } from './normalizeIndicators'
 
 function compileStrategy(code: string): (bars: Bar[]) => unknown {
   // Strip ES export so new Function can wrap user code safely in the worker.
@@ -26,12 +27,20 @@ function normalizeSignals(raw: unknown): Signal[] {
   throw new Error('A estratégia deve devolver { signals: [...] }')
 }
 
+function extractIndicators(raw: unknown): unknown {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && 'indicators' in raw) {
+    return (raw as { indicators?: unknown }).indicators ?? []
+  }
+  return []
+}
+
 function runBacktest(req: BacktestRequest): BacktestResponse {
   const started = performance.now()
   try {
     const strategy = compileStrategy(req.code)
     const raw = strategy(req.bars)
     const signals = normalizeSignals(raw)
+    const indicators = normalizeIndicators(req.bars, extractIndicators(raw))
     const trades = signalsToTrades(req.bars, signals)
     const equity = buildEquityCurve(req.bars, trades, req.initialCapital)
     const metrics = computeMetrics(equity, trades, req.initialCapital)
@@ -43,6 +52,7 @@ function runBacktest(req: BacktestRequest): BacktestResponse {
         trades,
         equity,
         metrics,
+        indicators,
         durationMs: performance.now() - started,
         barCount: req.bars.length,
       },

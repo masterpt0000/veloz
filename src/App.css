@@ -277,7 +277,86 @@ input {
 .chart-pane {
   flex: 1;
   min-height: 280px;
+  min-width: 0;
   width: 100%;
+}
+
+.indicator-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.indicator-legend-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.indicator-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.indicator-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    opacity 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.indicator-chip.on {
+  border-color: color-mix(in srgb, var(--ind-color, var(--accent)) 45%, transparent);
+  background: color-mix(in srgb, var(--ind-color, var(--accent)) 12%, white);
+}
+
+.indicator-chip.off {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.indicator-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ind-color, var(--accent));
+  flex: 0 0 auto;
+}
+
+.indicator-pane-tag {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: lowercase;
+}
+
+.indicator-empty {
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.indicator-empty code {
+  font-size: 0.7rem;
 }
 
 .code-actions {

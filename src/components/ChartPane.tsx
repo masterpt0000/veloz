@@ -6,27 +6,65 @@ import {
   createSeriesMarkers,
   CrosshairMode,
   HistogramSeries,
+  LineSeries,
   type IChartApi,
+  type IPaneApi,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
   type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
-import type { Bar, Signal } from '../types'
+import type { Bar, NormalizedIndicator, Signal } from '../types'
 
 interface ChartPaneProps {
   bars: Bar[]
   signals: Signal[]
+  indicators: NormalizedIndicator[]
   showVolume: boolean
+  /** Local UI visibility overrides keyed by indicator id. */
+  visibility: Record<string, boolean>
 }
 
-export function ChartPane({ bars, signals, showVolume }: ChartPaneProps) {
+type AnySeries = ISeriesApi<'Line'> | ISeriesApi<'Histogram'>
+
+interface ManagedSeries {
+  id: string
+  paneId: string
+  series: AnySeries
+  style: 'line' | 'histogram'
+}
+
+const CHART_LAYOUT = {
+  background: { type: ColorType.Solid as const, color: 'transparent' },
+  textColor: '#4a5c57',
+  fontFamily: "'DM Sans', sans-serif",
+  fontSize: 12,
+  attributionLogo: false,
+}
+
+function toUtcData(data: NormalizedIndicator['data']) {
+  return data.map((p) =>
+    'value' in p
+      ? { time: p.time as UTCTimestamp, value: p.value }
+      : { time: p.time as UTCTimestamp },
+  )
+}
+
+export function ChartPane({
+  bars,
+  signals,
+  indicators,
+  showVolume,
+  visibility,
+}: ChartPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volumeRef = useRef<ISeriesApi<'Histogram'> | null>(null)
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
+  const managedRef = useRef<Map<string, ManagedSeries>>(new Map())
+  const panesRef = useRef<Map<string, IPaneApi<Time>>>(new Map())
 
   useEffect(() => {
     const el = containerRef.current
@@ -34,13 +72,7 @@ export function ChartPane({ bars, signals, showVolume }: ChartPaneProps) {
 
     const chart = createChart(el, {
       autoSize: true,
-      layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#4a5c57',
-        fontFamily: "'DM Sans', sans-serif",
-        fontSize: 12,
-        attributionLogo: false,
-      },
+      layout: CHART_LAYOUT,
       grid: {
         vertLines: { color: 'rgba(11, 61, 54, 0.07)' },
         horzLines: { color: 'rgba(11, 61, 54, 0.07)' },
@@ -62,6 +94,9 @@ export function ChartPane({ bars, signals, showVolume }: ChartPaneProps) {
       handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true },
       handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
     })
+
+    const mainPane = chart.panes()[0]
+    mainPane.setStretchFactor(3)
 
     const candles = chart.addSeries(CandlestickSeries, {
       upColor: '#0f766e',
@@ -85,8 +120,11 @@ export function ChartPane({ bars, signals, showVolume }: ChartPaneProps) {
     candleRef.current = candles
     volumeRef.current = volume
     markersRef.current = createSeriesMarkers(candles, [])
+    panesRef.current.set('main', mainPane)
 
     return () => {
+      managedRef.current.clear()
+      panesRef.current.clear()
       markersRef.current = null
       candleRef.current = null
       volumeRef.current = null
@@ -105,7 +143,6 @@ export function ChartPane({ bars, signals, showVolume }: ChartPaneProps) {
   useEffect(() => {
     if (!candleRef.current || !volumeRef.current) return
 
-    // lightweight-charts handles LOD internally — pass full series once, no React per-bar render
     candleRef.current.setData(
       bars.map((b) => ({
         time: b.time as UTCTimestamp,
@@ -133,7 +170,6 @@ export function ChartPane({ bars, signals, showVolume }: ChartPaneProps) {
   useEffect(() => {
     if (!markersRef.current) return
 
-    // Cap markers drawn for extreme signal counts to keep interaction smooth
     const maxMarkers = 2500
     const step = Math.max(1, Math.ceil(signals.length / maxMarkers))
     const markers: SeriesMarker<Time>[] = []
@@ -153,5 +189,134 @@ export function ChartPane({ bars, signals, showVolume }: ChartPaneProps) {
     markersRef.current.setMarkers(markers)
   }, [signals])
 
-  return <div className="chart-pane" ref={containerRef} role="img" aria-label="Gráfico de velas" />
+  // Reconcile indicator series onto overlay / separate panes (setData only — no React per point)
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart) return
+
+    const managed = managedRef.current
+    const panes = panesRef.current
+    const nextIds = new Set(indicators.map((ind) => ind.id))
+
+    for (const [id, entry] of managed) {
+      if (!nextIds.has(id)) {
+        chart.removeSeries(entry.series)
+        managed.delete(id)
+      }
+    }
+
+    // Drop empty separate panes (keep main)
+    const neededPaneIds = new Set(
+      indicators
+        .filter((ind) => ind.pane === 'separate')
+        .map((ind) => ind.paneId),
+    )
+    for (const [paneId, pane] of [...panes.entries()]) {
+      if (paneId === 'main') continue
+      if (!neededPaneIds.has(paneId)) {
+        try {
+          chart.removePane(pane.paneIndex())
+        } catch {
+          /* pane may already be gone */
+        }
+        panes.delete(paneId)
+      }
+    }
+
+    for (const ind of indicators) {
+      const shown =
+        visibility[ind.id] !== undefined ? visibility[ind.id] : ind.visible
+
+      let entry = managed.get(ind.id)
+      const wantsHistogram = ind.style === 'histogram'
+      const needsRecreate =
+        entry &&
+        (entry.style !== ind.style ||
+          entry.paneId !== (ind.pane === 'overlay' ? 'overlay' : ind.paneId))
+
+      if (needsRecreate && entry) {
+        chart.removeSeries(entry.series)
+        managed.delete(ind.id)
+        entry = undefined
+      }
+
+      if (!entry) {
+        if (ind.pane === 'overlay') {
+          const series = wantsHistogram
+            ? chart.addSeries(HistogramSeries, {
+                color: ind.color,
+                priceScaleId: 'right',
+                lastValueVisible: false,
+                priceLineVisible: false,
+              })
+            : chart.addSeries(LineSeries, {
+                color: ind.color,
+                lineWidth: ind.lineWidth as 1 | 2 | 3 | 4,
+                priceScaleId: 'right',
+                lastValueVisible: false,
+                priceLineVisible: false,
+                crosshairMarkerVisible: false,
+              })
+          entry = {
+            id: ind.id,
+            paneId: 'overlay',
+            series,
+            style: ind.style,
+          }
+        } else {
+          let pane = panes.get(ind.paneId)
+          if (!pane) {
+            pane = chart.addPane(true)
+            pane.setStretchFactor(1)
+            panes.set(ind.paneId, pane)
+          }
+          const series = wantsHistogram
+            ? pane.addSeries(HistogramSeries, {
+                color: ind.color,
+                lastValueVisible: true,
+                priceLineVisible: false,
+              })
+            : pane.addSeries(LineSeries, {
+                color: ind.color,
+                lineWidth: ind.lineWidth as 1 | 2 | 3 | 4,
+                lastValueVisible: true,
+                priceLineVisible: false,
+                crosshairMarkerVisible: false,
+              })
+          entry = {
+            id: ind.id,
+            paneId: ind.paneId,
+            series,
+            style: ind.style,
+          }
+        }
+        managed.set(ind.id, entry)
+      }
+
+      entry.series.applyOptions(
+        wantsHistogram
+          ? { color: ind.color, visible: shown }
+          : {
+              color: ind.color,
+              lineWidth: ind.lineWidth as 1 | 2 | 3 | 4,
+              visible: shown,
+            },
+      )
+      entry.series.setData(toUtcData(ind.data))
+    }
+
+    // Stretch: main bigger when separate panes exist
+    const main = panes.get('main') ?? chart.panes()[0]
+    const separateCount = [...panes.keys()].filter((k) => k !== 'main').length
+    main?.setStretchFactor(separateCount > 0 ? 3 : 1)
+  }, [indicators, visibility])
+
+  return (
+    <div
+      className="chart-pane"
+      ref={containerRef}
+      role="img"
+      aria-label="Gráfico de velas e indicadores"
+    />
+  )
 }

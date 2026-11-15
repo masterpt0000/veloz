@@ -1,5 +1,6 @@
 import { startTransition, useDeferredValue, useEffect, useState } from 'react'
 import { ChartPane } from './components/ChartPane'
+import { IndicatorLegend } from './components/IndicatorLegend'
 import { ResultsPanel } from './components/ResultsPanel'
 import { StrategyEditor } from './components/StrategyEditor'
 import { BAR_COUNTS, SYMBOLS, TIMEFRAMES } from './data/symbols'
@@ -21,6 +22,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [dataMs, setDataMs] = useState(0)
+  const [indicatorVisibility, setIndicatorVisibility] = useState<
+    Record<string, boolean>
+  >({})
 
   const symbol = SYMBOLS.find((s) => s.id === symbolId) ?? SYMBOLS[0]
 
@@ -36,11 +40,13 @@ export default function App() {
       setDataMs(performance.now() - t0)
       setResult(null)
       setError(null)
+      setIndicatorVisibility({})
     })
   }, [symbol, timeframe, barCount])
 
   const deferredBars = useDeferredValue(bars)
   const deferredSignals = useDeferredValue(result?.signals ?? [])
+  const deferredIndicators = useDeferredValue(result?.indicators ?? [])
 
   async function handleRun() {
     setRunning(true)
@@ -48,6 +54,10 @@ export default function App() {
     try {
       const next = await runBacktest(code, bars, INITIAL_CAPITAL)
       setResult(next)
+      // Seed toggles from strategy `visible` flags
+      const seed: Record<string, boolean> = {}
+      for (const ind of next.indicators) seed[ind.id] = ind.visible
+      setIndicatorVisibility(seed)
     } catch (err) {
       setResult(null)
       setError(err instanceof Error ? err.message : String(err))
@@ -58,6 +68,13 @@ export default function App() {
 
   function handleResetCode() {
     setCode(SAMPLE_STRATEGY_CODE)
+  }
+
+  function toggleIndicator(id: string) {
+    setIndicatorVisibility((prev) => ({
+      ...prev,
+      [id]: !(prev[id] ?? true),
+    }))
   }
 
   return (
@@ -138,10 +155,17 @@ export default function App() {
             </span>
             <span className="muted">zoom / pan com rato ou touch</span>
           </div>
+          <IndicatorLegend
+            indicators={deferredIndicators}
+            visibility={indicatorVisibility}
+            onToggle={toggleIndicator}
+          />
           <ChartPane
             bars={deferredBars}
             signals={deferredSignals}
+            indicators={deferredIndicators}
             showVolume={showVolume}
+            visibility={indicatorVisibility}
           />
         </section>
 

@@ -56,11 +56,62 @@ export interface StrategyMetrics {
   finalEquity: number
 }
 
+/** Where an indicator series is drawn. */
+export type IndicatorPane = 'overlay' | 'separate'
+
+/** Visual style for an indicator series. */
+export type IndicatorStyle = 'line' | 'histogram'
+
+/** Sparse point form accepted from strategy code. */
+export interface IndicatorPoint {
+  time: BarTime
+  value: number
+}
+
+/**
+ * Indicator declared by strategy code (TradingView-like).
+ *
+ * - `pane: 'overlay'` → drawn on the candle price scale
+ * - `pane: 'separate'` → own sub-pane under the main chart
+ * - `visible: false` → hidden (can still be toggled in the UI)
+ * - `paneId` → group several series into the same separate pane (e.g. MACD)
+ * - `values` → either one number|null per bar (aligned with `bars`) or `{time,value}[]`
+ */
+export interface StrategyIndicator {
+  id: string
+  title: string
+  values: Array<number | null> | IndicatorPoint[]
+  pane: IndicatorPane
+  visible?: boolean
+  color?: string
+  style?: IndicatorStyle
+  lineWidth?: number
+  paneId?: string
+}
+
+/** Normalized point ready for lightweight-charts setData (whitespace = gap). */
+export type IndicatorChartPoint =
+  | { time: BarTime; value: number }
+  | { time: BarTime }
+
+export interface NormalizedIndicator {
+  id: string
+  title: string
+  pane: IndicatorPane
+  paneId: string
+  visible: boolean
+  color: string
+  style: IndicatorStyle
+  lineWidth: number
+  data: IndicatorChartPoint[]
+}
+
 export interface BacktestResult {
   signals: Signal[]
   trades: Trade[]
   equity: EquityPoint[]
   metrics: StrategyMetrics
+  indicators: NormalizedIndicator[]
   durationMs: number
   barCount: number
 }
