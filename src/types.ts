@@ -116,11 +116,18 @@ export interface BacktestResult {
   barCount: number
 }
 
+/** Builtin engines that skip user JS (ported from TraderBot, etc.). */
+export type BuiltinEngine = 'rci_dca'
+
 export interface BacktestRequest {
   id: number
   code: string
   bars: Bar[]
   initialCapital: number
+  /** When set, worker runs a ported engine instead of compiling code. */
+  builtin?: BuiltinEngine
+  /** Params for builtin engines (JSON-serializable). */
+  builtinParams?: Record<string, unknown>
 }
 
 export type BacktestResponse =

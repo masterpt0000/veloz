@@ -56,6 +56,9 @@ export function TradesList({ trades }: TradesListProps) {
             {slice.map((t, i) => (
               <tr key={`${t.entryTime}-${t.exitTime}-${start + i}`}>
                 <td>
+                  <span className={t.side === 'short' ? 'neg' : 'pos'}>
+                    {t.side === 'short' ? 'S' : 'L'}
+                  </span>{' '}
                   <span className="mono">{formatTime(t.entryTime)}</span>
                   <span className="muted"> → {formatPrice(t.entryPrice)}</span>
                 </td>

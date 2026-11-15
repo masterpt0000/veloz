@@ -2,6 +2,7 @@ import { startTransition, useDeferredValue, useEffect, useState } from 'react'
 import { ChartPane } from './components/ChartPane'
 import { IndicatorLegend } from './components/IndicatorLegend'
 import { ResultsPanel } from './components/ResultsPanel'
+import { RciDcaPanel } from './components/RciDcaPanel'
 import { SimpleStrategyForm } from './components/SimpleStrategyForm'
 import { StrategyEditor } from './components/StrategyEditor'
 import { StrategyModeTabs } from './components/StrategyModeTabs'
@@ -138,7 +139,10 @@ export default function App() {
     setError(null)
     try {
       const runCode = resolveRunCode(active)
-      const next = await runBacktest(runCode, bars, INITIAL_CAPITAL)
+      const next = await runBacktest(runCode, bars, INITIAL_CAPITAL, {
+        builtin: active.engine,
+        builtinParams: active.engine === 'rci_dca' ? active.rciDcaParams : undefined,
+      })
       setResult(next)
       const seed: Record<string, boolean> = {}
       for (const ind of next.indicators) seed[ind.id] = ind.visible
@@ -150,6 +154,8 @@ export default function App() {
       setRunning(false)
     }
   }
+
+  const isBuiltinRci = active.engine === 'rci_dca'
 
   function toggleIndicator(id: string) {
     setIndicatorVisibility((prev) => ({
@@ -264,8 +270,15 @@ export default function App() {
               onRun={handleRun}
             />
           </div>
-          <StrategyModeTabs mode={mode} onChange={handleModeChange} />
-          {mode === 'simple' ? (
+          {!isBuiltinRci && (
+            <StrategyModeTabs mode={mode} onChange={handleModeChange} />
+          )}
+          {isBuiltinRci ? (
+            <RciDcaPanel
+              key={`${library.activeId}-rci`}
+              params={active.rciDcaParams}
+            />
+          ) : mode === 'simple' ? (
             <SimpleStrategyForm
               key={`${library.activeId}-simple`}
               config={simpleConfig}

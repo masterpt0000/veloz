@@ -1,3 +1,9 @@
+import type { BuiltinEngine } from '../types'
+import {
+  RCI_DCA_DEFAULT_PARAMS,
+  RCI_DCA_STRATEGY_CODE,
+  type RciDcaParams,
+} from './rciDcaEngine'
 import { SAMPLE_STRATEGY_CODE } from './sampleStrategy'
 import {
   compileSimpleStrategyCode,
@@ -18,6 +24,10 @@ export interface SavedStrategy {
   mode: StrategyEditMode
   /** No-code builder config; kept even in advanced mode. */
   simpleConfig: SimpleStrategyConfig
+  /** Builtin engine (ported Python); undefined = user JS code. */
+  engine?: BuiltinEngine
+  /** Params for builtin RCI+DCA engine. */
+  rciDcaParams?: Partial<RciDcaParams>
 }
 
 export interface StrategyLibrary {
@@ -41,10 +51,24 @@ function uid(): string {
   return `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+function makeRciDcaStrategy(): SavedStrategy {
+  return {
+    id: uid(),
+    name: 'RCI + DCA (Python)',
+    code: RCI_DCA_STRATEGY_CODE,
+    updatedAt: Date.now(),
+    mode: 'advanced',
+    simpleConfig: defaultSimpleConfig(),
+    engine: 'rci_dca',
+    rciDcaParams: { ...RCI_DCA_DEFAULT_PARAMS },
+  }
+}
+
 function migrateStrategy(raw: Partial<SavedStrategy> & { id: string; name: string; code: string }): SavedStrategy {
   const simpleConfig = normalizeSimpleConfig(raw.simpleConfig)
   const mode: StrategyEditMode =
     raw.mode === 'simple' || raw.mode === 'advanced' ? raw.mode : 'advanced'
+  const engine = raw.engine === 'rci_dca' ? 'rci_dca' : undefined
   return {
     id: raw.id,
     name: raw.name,
@@ -52,14 +76,20 @@ function migrateStrategy(raw: Partial<SavedStrategy> & { id: string; name: strin
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : Date.now(),
     mode,
     simpleConfig,
+    engine,
+    rciDcaParams:
+      engine === 'rci_dca'
+        ? { ...RCI_DCA_DEFAULT_PARAMS, ...(raw.rciDcaParams ?? {}) }
+        : raw.rciDcaParams,
   }
 }
 
 export function createSeedLibrary(): StrategyLibrary {
   const id = uid()
   const simpleConfig = defaultSimpleConfig()
+  const rci = makeRciDcaStrategy()
   return {
-    activeId: id,
+    activeId: rci.id,
     strategies: [
       {
         id,
@@ -69,7 +99,18 @@ export function createSeedLibrary(): StrategyLibrary {
         mode: 'advanced',
         simpleConfig,
       },
+      rci,
     ],
+  }
+}
+
+/** Ensure existing libraries get the imported RCI+DCA strategy once. */
+export function ensureRciDcaStrategy(library: StrategyLibrary): StrategyLibrary {
+  if (library.strategies.some((s) => s.engine === 'rci_dca')) return library
+  const rci = makeRciDcaStrategy()
+  return {
+    ...library,
+    strategies: [...library.strategies, rci],
   }
 }
 
@@ -89,11 +130,15 @@ export function loadLibrary(): StrategyLibrary {
       .filter((s) => s && typeof s.id === 'string' && typeof s.name === 'string')
       .map((s) => migrateStrategy(s as SavedStrategy))
     if (!strategies.length) return createSeedLibrary()
+    const withRci = ensureRciDcaStrategy({
+      activeId: parsed.activeId,
+      strategies,
+    })
     const activeId =
-      strategies.some((s) => s.id === parsed.activeId)
+      withRci.strategies.some((s) => s.id === parsed.activeId)
         ? parsed.activeId
-        : strategies[0].id
-    return { activeId, strategies }
+        : withRci.strategies[0].id
+    return { activeId, strategies: withRci.strategies }
   } catch {
     return createSeedLibrary()
   }
@@ -239,6 +284,7 @@ export function deleteStrategy(
 
 /** Code to send to the backtest worker for the active strategy. */
 export function resolveRunCode(strategy: SavedStrategy): string {
+  if (strategy.engine === 'rci_dca') return RCI_DCA_STRATEGY_CODE
   if (strategy.mode === 'simple') {
     return compileSimpleStrategyCode(strategy.simpleConfig)
   }

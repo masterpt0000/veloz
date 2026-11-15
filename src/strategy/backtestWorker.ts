@@ -1,6 +1,7 @@
 import type { BacktestRequest, BacktestResponse, Bar, Signal } from '../types'
 import { buildEquityCurve, computeMetrics, signalsToTrades } from './metrics'
 import { normalizeIndicators } from './normalizeIndicators'
+import { simulateRciDca, type RciDcaParams } from './rciDcaEngine'
 
 function compileStrategy(code: string): (bars: Bar[]) => unknown {
   // Strip ES export so new Function can wrap user code safely in the worker.
@@ -34,7 +35,7 @@ function extractIndicators(raw: unknown): unknown {
   return []
 }
 
-function runBacktest(req: BacktestRequest): BacktestResponse {
+function runCodeBacktest(req: BacktestRequest): BacktestResponse {
   const started = performance.now()
   try {
     const strategy = compileStrategy(req.code)
@@ -64,6 +65,35 @@ function runBacktest(req: BacktestRequest): BacktestResponse {
       error: err instanceof Error ? err.message : String(err),
     }
   }
+}
+
+function runBuiltin(req: BacktestRequest): BacktestResponse {
+  try {
+    if (req.builtin === 'rci_dca') {
+      const result = simulateRciDca(
+        req.bars,
+        req.builtinParams as Partial<RciDcaParams> | undefined,
+        req.initialCapital,
+      )
+      return { id: req.id, ok: true, result }
+    }
+    return {
+      id: req.id,
+      ok: false,
+      error: `Motor builtin desconhecido: ${String(req.builtin)}`,
+    }
+  } catch (err) {
+    return {
+      id: req.id,
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+function runBacktest(req: BacktestRequest): BacktestResponse {
+  if (req.builtin) return runBuiltin(req)
+  return runCodeBacktest(req)
 }
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope
