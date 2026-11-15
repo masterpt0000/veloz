@@ -1,4 +1,10 @@
-import type { BacktestRequest, BacktestResponse, BacktestResult, Bar } from '../types'
+import type {
+  BacktestRequest,
+  BacktestResponse,
+  BacktestResult,
+  Bar,
+  BuiltinEngine,
+} from '../types'
 import BacktestWorker from './backtestWorker?worker'
 
 let worker: Worker | null = null
@@ -11,10 +17,16 @@ function getWorker(): Worker {
   return worker
 }
 
+export interface RunBacktestOptions {
+  builtin?: BuiltinEngine
+  builtinParams?: Record<string, unknown>
+}
+
 export function runBacktest(
   code: string,
   bars: Bar[],
   initialCapital = 10_000,
+  options?: RunBacktestOptions,
 ): Promise<BacktestResult> {
   const id = nextId++
   const w = getWorker()
@@ -36,7 +48,14 @@ export function runBacktest(
     w.addEventListener('message', onMessage)
     w.addEventListener('error', onError)
 
-    const payload: BacktestRequest = { id, code, bars, initialCapital }
+    const payload: BacktestRequest = {
+      id,
+      code,
+      bars,
+      initialCapital,
+      builtin: options?.builtin,
+      builtinParams: options?.builtinParams,
+    }
     w.postMessage(payload)
   })
 }
