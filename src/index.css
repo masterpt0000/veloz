@@ -1,0 +1,8 @@
+/* Base reset lives mostly in App.css; keep document defaults minimal. */
+html {
+  text-size-adjust: 100%;
+}
+
+::selection {
+  background: rgba(15, 118, 110, 0.22);
+}
