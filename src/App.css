@@ -454,6 +454,168 @@ input {
   background: #0f5c52;
 }
 
+.strategy-mode-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px 0;
+  flex: 0 0 auto;
+}
+
+.mode-tab {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.45);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.mode-tab:hover {
+  background: rgba(11, 61, 54, 0.05);
+  color: var(--ink-soft);
+}
+
+.mode-tab.active {
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+  color: #e8f5f1;
+}
+
+.simple-strategy {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 10px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.simple-strategy-intro {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.simple-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.simple-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.simple-block-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.simple-indicator-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.simple-indicator-row,
+.simple-rule-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+
+.simple-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  min-width: 110px;
+  flex: 1 1 120px;
+}
+
+.simple-field.narrow {
+  flex: 0 1 84px;
+  min-width: 72px;
+}
+
+.simple-field select,
+.simple-field input[type='number'] {
+  padding: 7px 9px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  outline: none;
+  width: 100%;
+}
+
+.simple-field input[type='color'] {
+  width: 100%;
+  height: 34px;
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+}
+
+.simple-field select:focus,
+.simple-field input:focus {
+  border-color: rgba(15, 118, 110, 0.55);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.simple-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.simple-check input {
+  accent-color: var(--accent);
+}
+
 .strategy-editor {
   flex: 1 1 auto;
   /* Critical: override flex min-height:auto so the pane is bounded by the
