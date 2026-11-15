@@ -2,20 +2,29 @@ import { startTransition, useDeferredValue, useEffect, useState } from 'react'
 import { ChartPane } from './components/ChartPane'
 import { IndicatorLegend } from './components/IndicatorLegend'
 import { ResultsPanel } from './components/ResultsPanel'
+import { SimpleStrategyForm } from './components/SimpleStrategyForm'
 import { StrategyEditor } from './components/StrategyEditor'
+import { StrategyModeTabs } from './components/StrategyModeTabs'
 import { StrategyToolbar } from './components/StrategyToolbar'
 import { BAR_COUNTS, SYMBOLS, TIMEFRAMES } from './data/symbols'
 import { generateMarketData } from './data/generateMarketData'
 import { runBacktest } from './strategy/runBacktest'
+import type {
+  SimpleStrategyConfig,
+  StrategyEditMode,
+} from './strategy/simpleStrategy'
 import {
   createStrategy,
   deleteStrategy,
   getActive,
   loadLibrary,
   renameStrategy,
+  resolveRunCode,
   saveLibrary,
   selectStrategy,
   updateActiveCode,
+  updateActiveMode,
+  updateActiveSimpleConfig,
   type StrategyLibrary,
 } from './strategy/strategyStore'
 import type { BacktestResult, Timeframe } from './types'
@@ -51,6 +60,8 @@ export default function App() {
 
   const symbol = SYMBOLS.find((s) => s.id === symbolId) ?? SYMBOLS[0]
   const code = active.code
+  const mode = active.mode
+  const simpleConfig = active.simpleConfig
 
   const [bars, setBars] = useState(() =>
     generateMarketData(SYMBOLS[0], '1h', 25_000),
@@ -76,9 +87,17 @@ export default function App() {
     setLibrary((lib) => updateActiveCode(lib, nextCode))
   }
 
+  function handleModeChange(nextMode: StrategyEditMode) {
+    setLibrary((lib) => updateActiveMode(lib, nextMode))
+  }
+
+  function handleSimpleConfigChange(next: SimpleStrategyConfig) {
+    setLibrary((lib) => updateActiveSimpleConfig(lib, next))
+  }
+
   function handleSelect(id: string) {
     setLibrary((lib) => selectStrategy(lib, id))
-    // Load code only — do not auto-run backtest
+    // Load strategy only — do not auto-run backtest
     setResult(null)
     setError(null)
     setIndicatorVisibility({})
@@ -88,7 +107,7 @@ export default function App() {
     const name = window.prompt('Nome da nova estratégia:', 'Nova estratégia')
     if (name == null) return
     const useSample = window.confirm(
-      'Usar o código da amostra SMA + RSI?\n\nOK = amostra · Cancelar = modelo em branco',
+      'Usar a amostra SMA + RSI (modo avançado)?\n\nOK = amostra · Cancelar = modo simples',
     )
     setLibrary((lib) => createStrategy(lib, name, useSample))
     setResult(null)
@@ -118,7 +137,8 @@ export default function App() {
     setRunning(true)
     setError(null)
     try {
-      const next = await runBacktest(code, bars, INITIAL_CAPITAL)
+      const runCode = resolveRunCode(active)
+      const next = await runBacktest(runCode, bars, INITIAL_CAPITAL)
       setResult(next)
       const seed: Record<string, boolean> = {}
       for (const ind of next.indicators) seed[ind.id] = ind.visible
@@ -244,11 +264,20 @@ export default function App() {
               onRun={handleRun}
             />
           </div>
-          <StrategyEditor
-            key={library.activeId}
-            code={code}
-            onChange={handleCodeChange}
-          />
+          <StrategyModeTabs mode={mode} onChange={handleModeChange} />
+          {mode === 'simple' ? (
+            <SimpleStrategyForm
+              key={`${library.activeId}-simple`}
+              config={simpleConfig}
+              onChange={handleSimpleConfigChange}
+            />
+          ) : (
+            <StrategyEditor
+              key={`${library.activeId}-advanced`}
+              code={code}
+              onChange={handleCodeChange}
+            />
+          )}
         </section>
 
         <ResultsPanel
