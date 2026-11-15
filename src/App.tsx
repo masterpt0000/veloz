@@ -3,21 +3,44 @@ import { ChartPane } from './components/ChartPane'
 import { IndicatorLegend } from './components/IndicatorLegend'
 import { ResultsPanel } from './components/ResultsPanel'
 import { StrategyEditor } from './components/StrategyEditor'
+import { StrategyToolbar } from './components/StrategyToolbar'
 import { BAR_COUNTS, SYMBOLS, TIMEFRAMES } from './data/symbols'
 import { generateMarketData } from './data/generateMarketData'
-import { SAMPLE_STRATEGY_CODE } from './strategy/sampleStrategy'
 import { runBacktest } from './strategy/runBacktest'
+import {
+  createStrategy,
+  deleteStrategy,
+  getActive,
+  loadLibrary,
+  renameStrategy,
+  saveLibrary,
+  selectStrategy,
+  updateActiveCode,
+  type StrategyLibrary,
+} from './strategy/strategyStore'
 import type { BacktestResult, Timeframe } from './types'
 import './App.css'
 
 const INITIAL_CAPITAL = 10_000
+
+function useStrategyLibrary() {
+  const [library, setLibrary] = useState<StrategyLibrary>(() => loadLibrary())
+
+  useEffect(() => {
+    saveLibrary(library)
+  }, [library])
+
+  const active = getActive(library)
+
+  return { library, setLibrary, active }
+}
 
 export default function App() {
   const [symbolId, setSymbolId] = useState(SYMBOLS[0].id)
   const [timeframe, setTimeframe] = useState<Timeframe>('1h')
   const [barCount, setBarCount] = useState<number>(25_000)
   const [showVolume, setShowVolume] = useState(true)
-  const [code, setCode] = useState(SAMPLE_STRATEGY_CODE)
+  const { library, setLibrary, active } = useStrategyLibrary()
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
@@ -27,6 +50,7 @@ export default function App() {
   >({})
 
   const symbol = SYMBOLS.find((s) => s.id === symbolId) ?? SYMBOLS[0]
+  const code = active.code
 
   const [bars, setBars] = useState(() =>
     generateMarketData(SYMBOLS[0], '1h', 25_000),
@@ -48,13 +72,54 @@ export default function App() {
   const deferredSignals = useDeferredValue(result?.signals ?? [])
   const deferredIndicators = useDeferredValue(result?.indicators ?? [])
 
+  function handleCodeChange(nextCode: string) {
+    setLibrary((lib) => updateActiveCode(lib, nextCode))
+  }
+
+  function handleSelect(id: string) {
+    setLibrary((lib) => selectStrategy(lib, id))
+    // Load code only — do not auto-run backtest
+    setResult(null)
+    setError(null)
+    setIndicatorVisibility({})
+  }
+
+  function handleCreate() {
+    const name = window.prompt('Nome da nova estratégia:', 'Nova estratégia')
+    if (name == null) return
+    const useSample = window.confirm(
+      'Usar o código da amostra SMA + RSI?\n\nOK = amostra · Cancelar = modelo em branco',
+    )
+    setLibrary((lib) => createStrategy(lib, name, useSample))
+    setResult(null)
+    setError(null)
+    setIndicatorVisibility({})
+  }
+
+  function handleRename() {
+    const current = getActive(library)
+    const name = window.prompt('Novo nome:', current.name)
+    if (name == null || !name.trim()) return
+    setLibrary((lib) => renameStrategy(lib, current.id, name))
+  }
+
+  function handleDelete() {
+    if (library.strategies.length <= 1) return
+    const current = getActive(library)
+    const ok = window.confirm(`Eliminar «${current.name}»? Esta ação não se desfaz.`)
+    if (!ok) return
+    setLibrary((lib) => deleteStrategy(lib, current.id))
+    setResult(null)
+    setError(null)
+    setIndicatorVisibility({})
+  }
+
   async function handleRun() {
     setRunning(true)
     setError(null)
     try {
       const next = await runBacktest(code, bars, INITIAL_CAPITAL)
       setResult(next)
-      // Seed toggles from strategy `visible` flags
       const seed: Record<string, boolean> = {}
       for (const ind of next.indicators) seed[ind.id] = ind.visible
       setIndicatorVisibility(seed)
@@ -64,10 +129,6 @@ export default function App() {
     } finally {
       setRunning(false)
     }
-  }
-
-  function handleResetCode() {
-    setCode(SAMPLE_STRATEGY_CODE)
   }
 
   function toggleIndicator(id: string) {
@@ -172,21 +233,22 @@ export default function App() {
         <section className="code-section">
           <div className="section-label">
             <span>Estratégia</span>
-            <div className="code-actions">
-              <button type="button" className="btn ghost" onClick={handleResetCode}>
-                Restaurar amostra
-              </button>
-              <button
-                type="button"
-                className="btn primary"
-                onClick={handleRun}
-                disabled={running}
-              >
-                {running ? 'A executar…' : 'Executar backtest'}
-              </button>
-            </div>
+            <StrategyToolbar
+              strategies={library.strategies}
+              activeId={library.activeId}
+              running={running}
+              onSelect={handleSelect}
+              onCreate={handleCreate}
+              onRename={handleRename}
+              onDelete={handleDelete}
+              onRun={handleRun}
+            />
           </div>
-          <StrategyEditor code={code} onChange={setCode} />
+          <StrategyEditor
+            key={library.activeId}
+            code={code}
+            onChange={handleCodeChange}
+          />
         </section>
 
         <ResultsPanel

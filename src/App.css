@@ -363,6 +363,54 @@ input {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.strategy-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.strategy-select-field {
+  flex: 1 1 140px;
+  min-width: 120px;
+  max-width: 220px;
+}
+
+.strategy-select {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 500;
+  outline: none;
+}
+
+.strategy-select:focus {
+  border-color: rgba(15, 118, 110, 0.55);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.btn.danger {
+  color: #9a3412;
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: rgba(194, 65, 12, 0.08);
+  border-color: rgba(194, 65, 12, 0.35);
+}
+
+.btn.danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .btn {
