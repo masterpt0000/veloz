@@ -242,11 +242,16 @@ input {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   backdrop-filter: blur(14px);
   box-shadow: 0 10px 40px rgba(11, 61, 54, 0.05);
+}
+
+.code-section .section-label {
+  flex: 0 0 auto;
 }
 
 .section-label,
@@ -323,14 +328,39 @@ input {
 }
 
 .strategy-editor {
-  flex: 1;
-  min-height: 220px;
+  flex: 1 1 auto;
+  /* Critical: override flex min-height:auto so the pane is bounded by the
+     parent and CodeMirror's scroller (not the page) handles long code. */
+  min-height: 0;
   overflow: hidden;
   padding: 0 4px 4px;
+  position: relative;
+}
+
+/* Pin the CodeMirror mount to the pane bounds. Without this, .cm-theme /
+   .cm-editor grow with document height and overflow:hidden clips with no scroll. */
+.strategy-editor .cm-theme,
+.strategy-editor .cm-theme-light,
+.strategy-editor .cm-theme-dark {
+  position: absolute !important;
+  inset: 0;
+  height: 100% !important;
+  max-height: 100% !important;
+  width: 100% !important;
 }
 
 .strategy-editor .cm-editor {
+  height: 100% !important;
+  max-height: 100% !important;
+  width: 100%;
+  overflow: hidden;
+}
+
+.strategy-editor .cm-scroller {
+  overflow: auto !important;
+  overscroll-behavior: contain;
   height: 100%;
+  max-height: 100%;
 }
 
 .strategy-editor .cm-editor.cm-focused {

@@ -11,15 +11,18 @@ const velozTheme = EditorView.theme({
   '&': {
     backgroundColor: 'transparent',
     height: '100%',
+    maxHeight: '100%',
     fontSize: '13px',
   },
   '.cm-scroller': {
     fontFamily: "'DM Sans', ui-monospace, SFMono-Regular, Menlo, monospace",
     lineHeight: '1.55',
+    overflow: 'auto',
   },
   '.cm-content': {
     caretColor: '#0b3d36',
     padding: '12px 0',
+    minWidth: '100%',
   },
   '.cm-gutters': {
     backgroundColor: 'transparent',
@@ -43,6 +46,8 @@ export function StrategyEditor({ code, onChange }: StrategyEditorProps) {
       <CodeMirror
         value={code}
         height="100%"
+        maxHeight="100%"
+        width="100%"
         theme={velozTheme}
         extensions={[javascript({ typescript: true }), EditorView.lineWrapping]}
         onChange={onChange}
