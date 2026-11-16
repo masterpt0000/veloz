@@ -116,8 +116,8 @@ export interface BacktestResult {
   barCount: number
 }
 
-/** Builtin engines that skip user JS (ported from TraderBot, etc.). */
-export type BuiltinEngine = 'rci_dca'
+/** Builtin engines that skip user JS (ported from TraderBot / backtest builder). */
+export type BuiltinEngine = 'rci_dca' | 'builder'
 
 export interface BacktestRequest {
   id: number
