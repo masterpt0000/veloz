@@ -1,5 +1,11 @@
 import type { BuiltinEngine } from '../types'
 import {
+  BUILDER_STUB_CODE,
+  defaultBuilderSpec,
+  normalizeBuilderSpec,
+  type VelozBuilderSpec,
+} from './builderSpec'
+import {
   RCI_DCA_DEFAULT_PARAMS,
   RCI_DCA_STRATEGY_CODE,
   type RciDcaParams,
@@ -24,10 +30,12 @@ export interface SavedStrategy {
   mode: StrategyEditMode
   /** No-code builder config; kept even in advanced mode. */
   simpleConfig: SimpleStrategyConfig
-  /** Builtin engine (ported Python); undefined = user JS code. */
+  /** Builtin engine (ported Python / backtest builder); undefined = user JS. */
   engine?: BuiltinEngine
   /** Params for builtin RCI+DCA engine. */
   rciDcaParams?: Partial<RciDcaParams>
+  /** Spec for builtin chart-builder engine (backtest-inspired). */
+  builderSpec?: VelozBuilderSpec
 }
 
 export interface StrategyLibrary {
@@ -64,11 +72,26 @@ function makeRciDcaStrategy(): SavedStrategy {
   }
 }
 
+function makeBuilderStrategy(): SavedStrategy {
+  const spec = defaultBuilderSpec('EMA cross (builder)')
+  return {
+    id: uid(),
+    name: spec.name,
+    code: BUILDER_STUB_CODE,
+    updatedAt: Date.now(),
+    mode: 'advanced',
+    simpleConfig: defaultSimpleConfig(),
+    engine: 'builder',
+    builderSpec: spec,
+  }
+}
+
 function migrateStrategy(raw: Partial<SavedStrategy> & { id: string; name: string; code: string }): SavedStrategy {
   const simpleConfig = normalizeSimpleConfig(raw.simpleConfig)
   const mode: StrategyEditMode =
     raw.mode === 'simple' || raw.mode === 'advanced' ? raw.mode : 'advanced'
-  const engine = raw.engine === 'rci_dca' ? 'rci_dca' : undefined
+  const engine: BuiltinEngine | undefined =
+    raw.engine === 'rci_dca' || raw.engine === 'builder' ? raw.engine : undefined
   return {
     id: raw.id,
     name: raw.name,
@@ -81,6 +104,12 @@ function migrateStrategy(raw: Partial<SavedStrategy> & { id: string; name: strin
       engine === 'rci_dca'
         ? { ...RCI_DCA_DEFAULT_PARAMS, ...(raw.rciDcaParams ?? {}) }
         : raw.rciDcaParams,
+    builderSpec:
+      engine === 'builder'
+        ? normalizeBuilderSpec(raw.builderSpec ?? defaultBuilderSpec(raw.name))
+        : raw.builderSpec
+          ? normalizeBuilderSpec(raw.builderSpec)
+          : undefined,
   }
 }
 
@@ -88,8 +117,9 @@ export function createSeedLibrary(): StrategyLibrary {
   const id = uid()
   const simpleConfig = defaultSimpleConfig()
   const rci = makeRciDcaStrategy()
+  const builder = makeBuilderStrategy()
   return {
-    activeId: rci.id,
+    activeId: builder.id,
     strategies: [
       {
         id,
@@ -100,6 +130,7 @@ export function createSeedLibrary(): StrategyLibrary {
         simpleConfig,
       },
       rci,
+      builder,
     ],
   }
 }
@@ -111,6 +142,15 @@ export function ensureRciDcaStrategy(library: StrategyLibrary): StrategyLibrary 
   return {
     ...library,
     strategies: [...library.strategies, rci],
+  }
+}
+
+export function ensureBuilderStrategy(library: StrategyLibrary): StrategyLibrary {
+  if (library.strategies.some((s) => s.engine === 'builder')) return library
+  const builder = makeBuilderStrategy()
+  return {
+    ...library,
+    strategies: [...library.strategies, builder],
   }
 }
 
@@ -130,15 +170,17 @@ export function loadLibrary(): StrategyLibrary {
       .filter((s) => s && typeof s.id === 'string' && typeof s.name === 'string')
       .map((s) => migrateStrategy(s as SavedStrategy))
     if (!strategies.length) return createSeedLibrary()
-    const withRci = ensureRciDcaStrategy({
-      activeId: parsed.activeId,
-      strategies,
-    })
+    const withExtras = ensureBuilderStrategy(
+      ensureRciDcaStrategy({
+        activeId: parsed.activeId,
+        strategies,
+      }),
+    )
     const activeId =
-      withRci.strategies.some((s) => s.id === parsed.activeId)
+      withExtras.strategies.some((s) => s.id === parsed.activeId)
         ? parsed.activeId
-        : withRci.strategies[0].id
-    return { activeId, strategies: withRci.strategies }
+        : withExtras.strategies[0].id
+    return { activeId, strategies: withExtras.strategies }
   } catch {
     return createSeedLibrary()
   }
@@ -245,14 +287,38 @@ export function createStrategy(
     : {
         id,
         name: trimmed,
-        code: compileSimpleStrategyCode(simpleConfig),
+        code: BUILDER_STUB_CODE,
         updatedAt: Date.now(),
-        mode: 'simple',
+        mode: 'advanced',
         simpleConfig,
+        engine: 'builder',
+        builderSpec: defaultBuilderSpec(trimmed),
       }
   return {
     activeId: id,
     strategies: [...library.strategies, next],
+  }
+}
+
+export function updateActiveBuilderSpec(
+  library: StrategyLibrary,
+  builderSpec: VelozBuilderSpec,
+): StrategyLibrary {
+  const normalized = normalizeBuilderSpec(builderSpec)
+  return {
+    ...library,
+    strategies: library.strategies.map((s) =>
+      s.id === library.activeId
+        ? {
+            ...s,
+            name: normalized.name || s.name,
+            engine: 'builder',
+            builderSpec: normalized,
+            code: BUILDER_STUB_CODE,
+            updatedAt: Date.now(),
+          }
+        : s,
+    ),
   }
 }
 
@@ -285,6 +351,7 @@ export function deleteStrategy(
 /** Code to send to the backtest worker for the active strategy. */
 export function resolveRunCode(strategy: SavedStrategy): string {
   if (strategy.engine === 'rci_dca') return RCI_DCA_STRATEGY_CODE
+  if (strategy.engine === 'builder') return BUILDER_STUB_CODE
   if (strategy.mode === 'simple') {
     return compileSimpleStrategyCode(strategy.simpleConfig)
   }

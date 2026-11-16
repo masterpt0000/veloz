@@ -1,6 +1,7 @@
 import type { BacktestRequest, BacktestResponse, Bar, Signal } from '../types'
 import { buildEquityCurve, computeMetrics, signalsToTrades } from './metrics'
 import { normalizeIndicators } from './normalizeIndicators'
+import { runBuilderSpec } from './builderEngine'
 import { simulateRciDca, type RciDcaParams } from './rciDcaEngine'
 
 function compileStrategy(code: string): (bars: Bar[]) => unknown {
@@ -73,6 +74,14 @@ function runBuiltin(req: BacktestRequest): BacktestResponse {
       const result = simulateRciDca(
         req.bars,
         req.builtinParams as Partial<RciDcaParams> | undefined,
+        req.initialCapital,
+      )
+      return { id: req.id, ok: true, result }
+    }
+    if (req.builtin === 'builder') {
+      const result = runBuilderSpec(
+        req.bars,
+        req.builtinParams,
         req.initialCapital,
       )
       return { id: req.id, ok: true, result }

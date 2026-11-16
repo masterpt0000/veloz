@@ -4,12 +4,17 @@ import { IndicatorLegend } from './components/IndicatorLegend'
 import { ResultsPanel } from './components/ResultsPanel'
 import { RciDcaPanel } from './components/RciDcaPanel'
 import { SimpleStrategyForm } from './components/SimpleStrategyForm'
+import { StrategyBuilderForm } from './components/StrategyBuilderForm'
 import { StrategyEditor } from './components/StrategyEditor'
 import { StrategyModeTabs } from './components/StrategyModeTabs'
 import { StrategyToolbar } from './components/StrategyToolbar'
 import { BAR_COUNTS, SYMBOLS, TIMEFRAMES } from './data/symbols'
 import { generateMarketData } from './data/generateMarketData'
 import { runBacktest } from './strategy/runBacktest'
+import {
+  defaultBuilderSpec,
+  type VelozBuilderSpec,
+} from './strategy/builderSpec'
 import type {
   SimpleStrategyConfig,
   StrategyEditMode,
@@ -23,6 +28,7 @@ import {
   resolveRunCode,
   saveLibrary,
   selectStrategy,
+  updateActiveBuilderSpec,
   updateActiveCode,
   updateActiveMode,
   updateActiveSimpleConfig,
@@ -33,6 +39,15 @@ import './App.css'
 
 const INITIAL_CAPITAL = 10_000
 
+function readPane(): 'chart' | 'builder' {
+  try {
+    const q = new URLSearchParams(window.location.search)
+    return q.get('pane') === 'builder' ? 'builder' : 'chart'
+  } catch {
+    return 'chart'
+  }
+}
+
 function useStrategyLibrary() {
   const [library, setLibrary] = useState<StrategyLibrary>(() => loadLibrary())
 
@@ -40,12 +55,26 @@ function useStrategyLibrary() {
     saveLibrary(library)
   }, [library])
 
-  const active = getActive(library)
+  // Sync when the builder tab writes localStorage
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key !== 'veloz.strategies.v1' || !e.newValue) return
+      try {
+        setLibrary(loadLibrary())
+      } catch {
+        /* ignore */
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
+  const active = getActive(library)
   return { library, setLibrary, active }
 }
 
 export default function App() {
+  const [pane] = useState(readPane)
   const [symbolId, setSymbolId] = useState(SYMBOLS[0].id)
   const [timeframe, setTimeframe] = useState<Timeframe>('1h')
   const [barCount, setBarCount] = useState<number>(25_000)
@@ -63,12 +92,14 @@ export default function App() {
   const code = active.code
   const mode = active.mode
   const simpleConfig = active.simpleConfig
+  const builderSpec = active.builderSpec ?? defaultBuilderSpec(active.name)
 
   const [bars, setBars] = useState(() =>
     generateMarketData(SYMBOLS[0], '1h', 25_000),
   )
 
   useEffect(() => {
+    if (pane === 'builder') return
     const t0 = performance.now()
     const next = generateMarketData(symbol, timeframe, barCount)
     startTransition(() => {
@@ -78,7 +109,7 @@ export default function App() {
       setError(null)
       setIndicatorVisibility({})
     })
-  }, [symbol, timeframe, barCount])
+  }, [symbol, timeframe, barCount, pane])
 
   const deferredBars = useDeferredValue(bars)
   const deferredSignals = useDeferredValue(result?.signals ?? [])
@@ -96,9 +127,12 @@ export default function App() {
     setLibrary((lib) => updateActiveSimpleConfig(lib, next))
   }
 
+  function handleBuilderSpecChange(next: VelozBuilderSpec) {
+    setLibrary((lib) => updateActiveBuilderSpec(lib, next))
+  }
+
   function handleSelect(id: string) {
     setLibrary((lib) => selectStrategy(lib, id))
-    // Load strategy only — do not auto-run backtest
     setResult(null)
     setError(null)
     setIndicatorVisibility({})
@@ -108,7 +142,7 @@ export default function App() {
     const name = window.prompt('Nome da nova estratégia:', 'Nova estratégia')
     if (name == null) return
     const useSample = window.confirm(
-      'Usar a amostra SMA + RSI (modo avançado)?\n\nOK = amostra · Cancelar = modo simples',
+      'Usar a amostra SMA + RSI (código avançado)?\n\nOK = amostra · Cancelar = builder (formato backtest)',
     )
     setLibrary((lib) => createStrategy(lib, name, useSample))
     setResult(null)
@@ -134,14 +168,26 @@ export default function App() {
     setIndicatorVisibility({})
   }
 
+  function openBuilderTab() {
+    const url = new URL(window.location.href)
+    url.searchParams.set('pane', 'builder')
+    window.open(url.toString(), 'veloz-strategy-builder')
+  }
+
   async function handleRun() {
     setRunning(true)
     setError(null)
     try {
       const runCode = resolveRunCode(active)
+      const builtinParams =
+        active.engine === 'rci_dca'
+          ? active.rciDcaParams
+          : active.engine === 'builder'
+            ? (active.builderSpec ?? builderSpec)
+            : undefined
       const next = await runBacktest(runCode, bars, INITIAL_CAPITAL, {
         builtin: active.engine,
-        builtinParams: active.engine === 'rci_dca' ? active.rciDcaParams : undefined,
+        builtinParams: builtinParams as Record<string, unknown> | undefined,
       })
       setResult(next)
       const seed: Record<string, boolean> = {}
@@ -156,12 +202,79 @@ export default function App() {
   }
 
   const isBuiltinRci = active.engine === 'rci_dca'
+  const isBuilder = active.engine === 'builder'
 
   function toggleIndicator(id: string) {
     setIndicatorVisibility((prev) => ({
       ...prev,
       [id]: !(prev[id] ?? true),
     }))
+  }
+
+  if (pane === 'builder') {
+    return (
+      <div className="app-shell builder-shell">
+        <div className="atmosphere" aria-hidden="true" />
+        <header className="topbar">
+          <div className="brand">
+            <span className="brand-mark" aria-hidden="true" />
+            <div className="brand-text">
+              <h1>Veloz</h1>
+              <p>definições de estratégia</p>
+            </div>
+          </div>
+          <div className="topbar-meta">
+            <span className="pill muted">painel builder · sync via localStorage</span>
+          </div>
+        </header>
+        <main className="builder-workspace">
+          <div className="section-label">
+            <span>Estratégia</span>
+            <StrategyToolbar
+              strategies={library.strategies}
+              activeId={library.activeId}
+              running={false}
+              showRun={false}
+              onSelect={handleSelect}
+              onCreate={handleCreate}
+              onRename={handleRename}
+              onDelete={handleDelete}
+              onRun={() => undefined}
+            />
+          </div>
+          {isBuiltinRci ? (
+            <RciDcaPanel params={active.rciDcaParams} />
+          ) : isBuilder || !active.engine ? (
+            <StrategyBuilderForm
+              key={library.activeId}
+              spec={
+                isBuilder
+                  ? builderSpec
+                  : defaultBuilderSpec(active.name)
+              }
+              onChange={(next) => {
+                handleBuilderSpecChange(next)
+              }}
+            />
+          ) : mode === 'simple' ? (
+            <SimpleStrategyForm
+              key={`${library.activeId}-simple`}
+              config={simpleConfig}
+              onChange={handleSimpleConfigChange}
+            />
+          ) : (
+            <>
+              <StrategyModeTabs mode={mode} onChange={handleModeChange} />
+              <StrategyEditor
+                key={`${library.activeId}-advanced`}
+                code={code}
+                onChange={handleCodeChange}
+              />
+            </>
+          )}
+        </main>
+      </div>
+    )
   }
 
   return (
@@ -234,13 +347,23 @@ export default function App() {
         </div>
       </header>
 
-      <main className="workspace">
+      <main className="workspace workspace-chart">
         <section className="chart-section">
           <div className="section-label">
             <span>
               {symbol.label} · {timeframe}
             </span>
-            <span className="muted">zoom / pan com rato ou touch</span>
+            <StrategyToolbar
+              strategies={library.strategies}
+              activeId={library.activeId}
+              running={running}
+              onSelect={handleSelect}
+              onCreate={handleCreate}
+              onRename={handleRename}
+              onDelete={handleDelete}
+              onRun={handleRun}
+              onOpenBuilder={openBuilderTab}
+            />
           </div>
           <IndicatorLegend
             indicators={deferredIndicators}
@@ -254,43 +377,6 @@ export default function App() {
             showVolume={showVolume}
             visibility={indicatorVisibility}
           />
-        </section>
-
-        <section className="code-section">
-          <div className="section-label">
-            <span>Estratégia</span>
-            <StrategyToolbar
-              strategies={library.strategies}
-              activeId={library.activeId}
-              running={running}
-              onSelect={handleSelect}
-              onCreate={handleCreate}
-              onRename={handleRename}
-              onDelete={handleDelete}
-              onRun={handleRun}
-            />
-          </div>
-          {!isBuiltinRci && (
-            <StrategyModeTabs mode={mode} onChange={handleModeChange} />
-          )}
-          {isBuiltinRci ? (
-            <RciDcaPanel
-              key={`${library.activeId}-rci`}
-              params={active.rciDcaParams}
-            />
-          ) : mode === 'simple' ? (
-            <SimpleStrategyForm
-              key={`${library.activeId}-simple`}
-              config={simpleConfig}
-              onChange={handleSimpleConfigChange}
-            />
-          ) : (
-            <StrategyEditor
-              key={`${library.activeId}-advanced`}
-              code={code}
-              onChange={handleCodeChange}
-            />
-          )}
         </section>
 
         <ResultsPanel
