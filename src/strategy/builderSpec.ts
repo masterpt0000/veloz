@@ -200,7 +200,9 @@ export function normalizeBuilderSpec(raw: unknown): VelozBuilderSpec {
 
   return {
     version: 1,
-    name: (typeof o.name === 'string' && o.name.trim()) || base.name,
+    // Keep trailing spaces while typing; only fall back when the name is blank.
+    name:
+      typeof o.name === 'string' && o.name.trim() ? o.name : base.name,
     indicators,
     rules: {
       long: normalizeExpr(rules.long),
@@ -271,8 +273,8 @@ function escapeRegExp(s: string): string {
 
 function strOrNull(v: unknown): string | null {
   if (typeof v !== 'string') return null
-  const t = v.trim()
-  return t || null
+  // Preserve internal/trailing spaces during live editing; blank → null.
+  return v.trim() ? v : null
 }
 
 function num(v: unknown, d: number): number {
