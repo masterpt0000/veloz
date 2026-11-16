@@ -179,17 +179,19 @@ export function normalizeBuilderSpec(raw: unknown): VelozBuilderSpec {
   if (!raw || typeof raw !== 'object') return defaultBuilderSpec()
   const o = raw as Partial<VelozBuilderSpec>
   const base = defaultBuilderSpec(typeof o.name === 'string' ? o.name : undefined)
+  const seen = new Set<string>()
   const indicators = Array.isArray(o.indicators)
     ? o.indicators
         .filter((i): i is BuilderIndicator => !!i && typeof i === 'object')
-        .map((i) =>
-          defaultBuilderIndicator((['sma', 'ema', 'rsi', 'macd', 'bb'] as const).includes(i.kind)
+        .map((i) => {
+          const kind = (['sma', 'ema', 'rsi', 'macd', 'bb'] as const).includes(i.kind)
             ? i.kind
-            : 'sma', {
-            ...i,
-            id: String(i.id || newBuilderIndId('sma')),
-          }),
-        )
+            : 'sma'
+          let id = String(i.id ?? '').trim() || newBuilderIndId(kind)
+          while (seen.has(id)) id = newBuilderIndId(kind)
+          seen.add(id)
+          return defaultBuilderIndicator(kind, { ...i, id })
+        })
     : base.indicators
   if (!indicators.length) return defaultBuilderSpec()
 
@@ -198,7 +200,9 @@ export function normalizeBuilderSpec(raw: unknown): VelozBuilderSpec {
 
   return {
     version: 1,
-    name: (typeof o.name === 'string' && o.name.trim()) || base.name,
+    // Keep trailing spaces while typing; only fall back when the name is blank.
+    name:
+      typeof o.name === 'string' && o.name.trim() ? o.name : base.name,
     indicators,
     rules: {
       long: normalizeExpr(rules.long),
@@ -218,10 +222,59 @@ export function normalizeBuilderSpec(raw: unknown): VelozBuilderSpec {
   }
 }
 
+/** Rewrite indicator refs inside structured rules + free-text if-lines. */
+export function renameBuilderIndicatorRefs(
+  spec: VelozBuilderSpec,
+  from: string,
+  to: string,
+): VelozBuilderSpec {
+  if (!from || !to || from === to) return spec
+
+  const renameOperand = (op: BuilderOperand): BuilderOperand =>
+    op.type === 'indicator' && op.ref === from ? { ...op, ref: to } : op
+
+  const renameExpr = (expr: BuilderExpr | null): BuilderExpr | null => {
+    if (!expr) return expr
+    return {
+      ...expr,
+      parts: expr.parts.map((p) => ({
+        ...p,
+        left: renameOperand(p.left),
+        right: renameOperand(p.right),
+      })),
+    }
+  }
+
+  const renameIf = (line: string | null): string | null => {
+    if (!line) return line
+    // Word-boundary replace so ema12 does not become ema112 when renaming ema1→ema11
+    const re = new RegExp(`\\b${escapeRegExp(from)}\\b`, 'g')
+    return line.replace(re, to)
+  }
+
+  return {
+    ...spec,
+    rules: {
+      long: renameExpr(spec.rules.long),
+      short: renameExpr(spec.rules.short),
+      exitLong: renameExpr(spec.rules.exitLong),
+      exitShort: renameExpr(spec.rules.exitShort),
+      longIf: renameIf(spec.rules.longIf),
+      shortIf: renameIf(spec.rules.shortIf),
+      exitLongIf: renameIf(spec.rules.exitLongIf),
+      exitShortIf: renameIf(spec.rules.exitShortIf),
+    },
+  }
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function strOrNull(v: unknown): string | null {
   if (typeof v !== 'string') return null
-  const t = v.trim()
-  return t || null
+  // Preserve internal/trailing spaces during live editing; blank → null.
+  return v.trim() ? v : null
 }
 
 function num(v: unknown, d: number): number {
