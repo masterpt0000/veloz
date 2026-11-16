@@ -248,7 +248,7 @@ export default function App() {
             <StrategyBuilderForm
               key={library.activeId}
               spec={
-                isBuilder
+                isBuilder || active.builderSpec
                   ? builderSpec
                   : defaultBuilderSpec(active.name)
               }

@@ -100,14 +100,11 @@ export function StrategyBuilderForm({ spec, onChange }: StrategyBuilderFormProps
             risco). O gráfico e resultados ficam na outra janela.
           </p>
         </div>
-        <label className="simple-field">
-          <span>Nome</span>
-          <input
-            type="text"
-            value={spec.name}
-            onChange={(e) => patch({ name: e.target.value })}
-          />
-        </label>
+        <DraftTextField
+          label="Nome"
+          value={spec.name}
+          onChange={(name) => patch({ name })}
+        />
       </header>
 
       <section className="simple-block">
@@ -325,6 +322,86 @@ function IndicatorIdField({
   )
 }
 
+/** Keeps spaces while typing even if parent normalize/sync rewrites the value. */
+function DraftTextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string
+  value: string
+  onChange: (next: string) => void
+  placeholder?: string
+}) {
+  const [draft, setDraft] = useState(value)
+  const [focused, setFocused] = useState(false)
+
+  useEffect(() => {
+    if (!focused) setDraft(value)
+  }, [value, focused])
+
+  return (
+    <label className="simple-field">
+      <span>{label}</span>
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={draft}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => {
+          const next = e.target.value
+          setDraft(next)
+          onChange(next)
+        }}
+        onBlur={() => {
+          setFocused(false)
+          setDraft(value)
+        }}
+      />
+    </label>
+  )
+}
+
+function IfLineField({
+  value,
+  onChange,
+}: {
+  value: string | null
+  onChange: (next: string | null) => void
+}) {
+  const external = value ?? ''
+  const [draft, setDraft] = useState(external)
+  const [focused, setFocused] = useState(false)
+
+  useEffect(() => {
+    if (!focused) setDraft(external)
+  }, [external, focused])
+
+  return (
+    <label className="simple-field">
+      <span>If-line (opcional, estilo backtest)</span>
+      <input
+        type="text"
+        placeholder="ex.: ema12 crosses ema48 and rsi14 > 40"
+        value={draft}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => {
+          const next = e.target.value
+          setDraft(next)
+          onChange(next.trim() ? next : null)
+        }}
+        onBlur={() => {
+          setFocused(false)
+          const next = draft.trim() ? draft : null
+          setDraft(next ?? '')
+          onChange(next)
+        }}
+      />
+    </label>
+  )
+}
+
 function NumField({
   label,
   value,
@@ -417,15 +494,7 @@ function RuleBlock({
         </div>
       </div>
 
-      <label className="simple-field">
-        <span>If-line (opcional, estilo backtest)</span>
-        <input
-          type="text"
-          placeholder="ex.: ema12 crosses ema48 and rsi14 > 40"
-          value={ifLine ?? ''}
-          onChange={(e) => onIf(e.target.value.trim() ? e.target.value : null)}
-        />
-      </label>
+      <IfLineField value={ifLine} onChange={onIf} />
 
       {active.parts.length > 1 && (
         <label className="simple-field narrow">
