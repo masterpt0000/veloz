@@ -1,8 +1,10 @@
+import { useEffect, useRef, useState } from 'react'
 import {
   BUILDER_KIND_LABELS,
   BUILDER_OP_LABELS,
   defaultBuilderIndicator,
   emptyBuilderExpr,
+  renameBuilderIndicatorRefs,
   type BuilderCondition,
   type BuilderExpr,
   type BuilderIndicator,
@@ -21,12 +23,63 @@ const KINDS: BuilderIndicatorKind[] = ['sma', 'ema', 'rsi', 'macd', 'bb']
 const OPS: BuilderOp[] = ['cross_up', 'cross_down', 'gt', 'lt', 'ge', 'le']
 
 export function StrategyBuilderForm({ spec, onChange }: StrategyBuilderFormProps) {
-  function patch( partial: Partial<VelozBuilderSpec>) {
+  // Stable React keys — never use the editable indicator id (duplicate/changing
+  // keys remount rows and can spawn ghost DOM children).
+  const rowKeysRef = useRef<string[]>([])
+  if (rowKeysRef.current.length < spec.indicators.length) {
+    for (let i = rowKeysRef.current.length; i < spec.indicators.length; i++) {
+      rowKeysRef.current.push(`ind-${i}-${Math.random().toString(36).slice(2, 9)}`)
+    }
+  } else if (rowKeysRef.current.length > spec.indicators.length) {
+    rowKeysRef.current = rowKeysRef.current.slice(0, spec.indicators.length)
+  }
+
+  function patch(partial: Partial<VelozBuilderSpec>) {
     onChange({ ...spec, ...partial })
   }
 
   function setIndicators(indicators: BuilderIndicator[]) {
     patch({ indicators })
+  }
+
+  function updateIndicatorAt(
+    index: number,
+    updater: (ind: BuilderIndicator) => BuilderIndicator,
+  ) {
+    setIndicators(
+      spec.indicators.map((ind, i) => (i === index ? updater(ind) : ind)),
+    )
+  }
+
+  function renameIndicatorAt(index: number, nextRaw: string) {
+    const current = spec.indicators[index]
+    if (!current) return
+    const trimmed = nextRaw.trim()
+    if (!trimmed) return
+
+    const taken = new Set(
+      spec.indicators.map((ind, i) => (i === index ? '' : ind.id)).filter(Boolean),
+    )
+    let nextId = trimmed
+    if (taken.has(nextId)) {
+      let n = 2
+      while (taken.has(`${trimmed}_${n}`)) n += 1
+      nextId = `${trimmed}_${n}`
+    }
+    if (nextId === current.id) return
+
+    const indicators = spec.indicators.map((ind, i) =>
+      i === index ? { ...ind, id: nextId } : ind,
+    )
+    onChange(
+      renameBuilderIndicatorRefs({ ...spec, indicators }, current.id, nextId),
+    )
+  }
+
+  function removeIndicatorAt(index: number) {
+    if (spec.indicators.length <= 1) return
+    rowKeysRef.current = rowKeysRef.current.filter((_, i) => i !== index)
+    setIndicators(spec.indicators.filter((_, i) => i !== index))
   }
 
   function setRules(rules: VelozBuilderSpec['rules']) {
@@ -63,42 +116,34 @@ export function StrategyBuilderForm({ spec, onChange }: StrategyBuilderFormProps
           <button
             type="button"
             className="btn ghost"
-            onClick={() =>
+            onClick={() => {
+              rowKeysRef.current.push(
+                `ind-${rowKeysRef.current.length}-${Math.random().toString(36).slice(2, 9)}`,
+              )
               setIndicators([...spec.indicators, defaultBuilderIndicator('sma')])
-            }
+            }}
           >
             Adicionar
           </button>
         </div>
         <ul className="simple-indicator-list">
-          {spec.indicators.map((ind) => (
-            <li key={ind.id} className="simple-indicator-row">
-              <label className="simple-field">
-                <span>Id</span>
-                <input
-                  type="text"
-                  value={ind.id}
-                  onChange={(e) =>
-                    setIndicators(
-                      spec.indicators.map((x) =>
-                        x.id === ind.id ? { ...x, id: e.target.value.trim() || x.id } : x,
-                      ),
-                    )
-                  }
-                />
-              </label>
+          {spec.indicators.map((ind, index) => (
+            <li
+              key={rowKeysRef.current[index] ?? `fallback-${index}`}
+              className="simple-indicator-row"
+            >
+              <IndicatorIdField
+                id={ind.id}
+                onCommit={(next) => renameIndicatorAt(index, next)}
+              />
               <label className="simple-field">
                 <span>Tipo</span>
                 <select
                   value={ind.kind}
                   onChange={(e) => {
                     const kind = e.target.value as BuilderIndicatorKind
-                    setIndicators(
-                      spec.indicators.map((x) =>
-                        x.id === ind.id
-                          ? defaultBuilderIndicator(kind, { id: x.id, color: x.color })
-                          : x,
-                      ),
+                    updateIndicatorAt(index, (x) =>
+                      defaultBuilderIndicator(kind, { id: x.id, color: x.color }),
                     )
                   }}
                 >
@@ -115,33 +160,21 @@ export function StrategyBuilderForm({ spec, onChange }: StrategyBuilderFormProps
                     label="Rápida"
                     value={ind.fastPeriod}
                     onChange={(v) =>
-                      setIndicators(
-                        spec.indicators.map((x) =>
-                          x.id === ind.id ? { ...x, fastPeriod: v } : x,
-                        ),
-                      )
+                      updateIndicatorAt(index, (x) => ({ ...x, fastPeriod: v }))
                     }
                   />
                   <NumField
                     label="Lenta"
                     value={ind.slowPeriod}
                     onChange={(v) =>
-                      setIndicators(
-                        spec.indicators.map((x) =>
-                          x.id === ind.id ? { ...x, slowPeriod: v } : x,
-                        ),
-                      )
+                      updateIndicatorAt(index, (x) => ({ ...x, slowPeriod: v }))
                     }
                   />
                   <NumField
                     label="Sinal"
                     value={ind.signalPeriod}
                     onChange={(v) =>
-                      setIndicators(
-                        spec.indicators.map((x) =>
-                          x.id === ind.id ? { ...x, signalPeriod: v } : x,
-                        ),
-                      )
+                      updateIndicatorAt(index, (x) => ({ ...x, signalPeriod: v }))
                     }
                   />
                 </>
@@ -150,11 +183,11 @@ export function StrategyBuilderForm({ spec, onChange }: StrategyBuilderFormProps
                   label={ind.kind === 'bb' ? 'Período' : 'Período'}
                   value={ind.period}
                   onChange={(v) =>
-                    setIndicators(
-                      spec.indicators.map((x) =>
-                        x.id === ind.id ? { ...x, period: v, label: `${ind.kind.toUpperCase()} ${v}` } : x,
-                      ),
-                    )
+                    updateIndicatorAt(index, (x) => ({
+                      ...x,
+                      period: v,
+                      label: `${x.kind.toUpperCase()} ${v}`,
+                    }))
                   }
                 />
               )}
@@ -164,11 +197,7 @@ export function StrategyBuilderForm({ spec, onChange }: StrategyBuilderFormProps
                   value={ind.mult}
                   step={0.1}
                   onChange={(v) =>
-                    setIndicators(
-                      spec.indicators.map((x) =>
-                        x.id === ind.id ? { ...x, mult: v } : x,
-                      ),
-                    )
+                    updateIndicatorAt(index, (x) => ({ ...x, mult: v }))
                   }
                 />
               )}
@@ -176,9 +205,7 @@ export function StrategyBuilderForm({ spec, onChange }: StrategyBuilderFormProps
                 type="button"
                 className="btn ghost danger"
                 disabled={spec.indicators.length <= 1}
-                onClick={() =>
-                  setIndicators(spec.indicators.filter((x) => x.id !== ind.id))
-                }
+                onClick={() => removeIndicatorAt(index)}
               >
                 Remover
               </button>
@@ -254,6 +281,47 @@ export function StrategyBuilderForm({ spec, onChange }: StrategyBuilderFormProps
         </p>
       </section>
     </div>
+  )
+}
+
+function IndicatorIdField({
+  id,
+  onCommit,
+}: {
+  id: string
+  onCommit: (next: string) => void
+}) {
+  const [draft, setDraft] = useState(id)
+  const [focused, setFocused] = useState(false)
+
+  useEffect(() => {
+    if (!focused) setDraft(id)
+  }, [id, focused])
+
+  return (
+    <label className="simple-field">
+      <span>Id</span>
+      <input
+        type="text"
+        value={draft}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          setFocused(false)
+          const next = draft.trim()
+          if (!next || next === id) {
+            setDraft(id)
+            return
+          }
+          onCommit(next)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.currentTarget.blur()
+          }
+        }}
+      />
+    </label>
   )
 }
 
@@ -468,10 +536,10 @@ function OperandSelect({
           }}
         >
           <option value="close">Preço close</option>
-          {indicators.map((ind) => {
+          {indicators.map((ind, indIndex) => {
             if (ind.kind === 'macd') {
               return (
-                <optgroup key={ind.id} label={ind.label}>
+                <optgroup key={`macd-${indIndex}`} label={ind.label}>
                   <option value={`${ind.id}:main`}>MACD</option>
                   <option value={`${ind.id}:signal`}>Sinal</option>
                   <option value={`${ind.id}:hist`}>Hist</option>
@@ -480,7 +548,7 @@ function OperandSelect({
             }
             if (ind.kind === 'bb') {
               return (
-                <optgroup key={ind.id} label={ind.label}>
+                <optgroup key={`bb-${indIndex}`} label={ind.label}>
                   <option value={`${ind.id}:mid`}>Mid</option>
                   <option value={`${ind.id}:upper`}>Upper</option>
                   <option value={`${ind.id}:lower`}>Lower</option>
@@ -488,7 +556,7 @@ function OperandSelect({
               )
             }
             return (
-              <option key={ind.id} value={`${ind.id}:main`}>
+              <option key={`ind-${indIndex}`} value={`${ind.id}:main`}>
                 {ind.label}
               </option>
             )

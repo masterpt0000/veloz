@@ -179,17 +179,19 @@ export function normalizeBuilderSpec(raw: unknown): VelozBuilderSpec {
   if (!raw || typeof raw !== 'object') return defaultBuilderSpec()
   const o = raw as Partial<VelozBuilderSpec>
   const base = defaultBuilderSpec(typeof o.name === 'string' ? o.name : undefined)
+  const seen = new Set<string>()
   const indicators = Array.isArray(o.indicators)
     ? o.indicators
         .filter((i): i is BuilderIndicator => !!i && typeof i === 'object')
-        .map((i) =>
-          defaultBuilderIndicator((['sma', 'ema', 'rsi', 'macd', 'bb'] as const).includes(i.kind)
+        .map((i) => {
+          const kind = (['sma', 'ema', 'rsi', 'macd', 'bb'] as const).includes(i.kind)
             ? i.kind
-            : 'sma', {
-            ...i,
-            id: String(i.id || newBuilderIndId('sma')),
-          }),
-        )
+            : 'sma'
+          let id = String(i.id ?? '').trim() || newBuilderIndId(kind)
+          while (seen.has(id)) id = newBuilderIndId(kind)
+          seen.add(id)
+          return defaultBuilderIndicator(kind, { ...i, id })
+        })
     : base.indicators
   if (!indicators.length) return defaultBuilderSpec()
 
@@ -216,6 +218,55 @@ export function normalizeBuilderSpec(raw: unknown): VelozBuilderSpec {
       trailingStopPct: num(risk.trailingStopPct, 0),
     },
   }
+}
+
+/** Rewrite indicator refs inside structured rules + free-text if-lines. */
+export function renameBuilderIndicatorRefs(
+  spec: VelozBuilderSpec,
+  from: string,
+  to: string,
+): VelozBuilderSpec {
+  if (!from || !to || from === to) return spec
+
+  const renameOperand = (op: BuilderOperand): BuilderOperand =>
+    op.type === 'indicator' && op.ref === from ? { ...op, ref: to } : op
+
+  const renameExpr = (expr: BuilderExpr | null): BuilderExpr | null => {
+    if (!expr) return expr
+    return {
+      ...expr,
+      parts: expr.parts.map((p) => ({
+        ...p,
+        left: renameOperand(p.left),
+        right: renameOperand(p.right),
+      })),
+    }
+  }
+
+  const renameIf = (line: string | null): string | null => {
+    if (!line) return line
+    // Word-boundary replace so ema12 does not become ema112 when renaming ema1→ema11
+    const re = new RegExp(`\\b${escapeRegExp(from)}\\b`, 'g')
+    return line.replace(re, to)
+  }
+
+  return {
+    ...spec,
+    rules: {
+      long: renameExpr(spec.rules.long),
+      short: renameExpr(spec.rules.short),
+      exitLong: renameExpr(spec.rules.exitLong),
+      exitShort: renameExpr(spec.rules.exitShort),
+      longIf: renameIf(spec.rules.longIf),
+      shortIf: renameIf(spec.rules.shortIf),
+      exitLongIf: renameIf(spec.rules.exitLongIf),
+      exitShortIf: renameIf(spec.rules.exitShortIf),
+    },
+  }
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function strOrNull(v: unknown): string | null {
