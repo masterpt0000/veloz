@@ -162,19 +162,18 @@ app = FastAPI(title="Veloz Candles API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Accept", "Content-Type", "X-API-Key"],
 )
 
 
 def require_api_key(
     x_api_key: Annotated[str | None, Header()] = None,
 ) -> None:
-    expected = settings.candles_api_key.strip()
-    if not expected:
-        return
-    if x_api_key != expected:
+    """API key is always required (except /health)."""
+    expected = settings.candles_api_key
+    if not x_api_key or x_api_key != expected:
         raise HTTPException(status_code=401, detail="invalid or missing X-API-Key")
 
 

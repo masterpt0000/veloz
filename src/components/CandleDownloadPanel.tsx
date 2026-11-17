@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import {
   fetchBackfillJob,
   fetchSymbolCoverage,
+  getCandlesApiKey,
   isCandlesApiConfigured,
+  setCandlesApiKey,
   startBackfill,
   type BackfillJob,
   type SymbolCoverage,
@@ -80,16 +82,31 @@ export function CandleDownloadPanel({ open, onClose }: Props) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [apiKeyInput, setApiKeyInput] = useState(() => getCandlesApiKey())
 
   async function refreshCoverage() {
     if (!configured) return
+    if (!getCandlesApiKey()) {
+      setLoadError('Introduz a chave da API (X-API-Key) para ler a BD.')
+      return
+    }
     const rows = await fetchSymbolCoverage()
     if (rows == null) {
-      setLoadError('Não foi possível ler a cobertura na BD.')
+      setLoadError('Não foi possível ler a cobertura na BD (rede ou chave inválida).')
       return
     }
     setLoadError(null)
     setCoverage(rows)
+  }
+
+  function saveApiKey() {
+    setCandlesApiKey(apiKeyInput)
+    setMessage(
+      apiKeyInput.trim()
+        ? 'Chave guardada nesta sessão (não vai no bundle).'
+        : 'Chave removida desta sessão.',
+    )
+    void refreshCoverage()
   }
 
   useEffect(() => {
@@ -136,9 +153,17 @@ export function CandleDownloadPanel({ open, onClose }: Props) {
       setMessage('Define VITE_CANDLES_API_URL para usar a API de candles.')
       return
     }
+    if (!getCandlesApiKey()) {
+      setMessage('Introduz e guarda a chave da API antes de descarregar.')
+      return
+    }
     const symbols = [...selected]
     if (symbols.length === 0) {
       setMessage('Escolhe pelo menos um símbolo.')
+      return
+    }
+    if (symbols.length > 10) {
+      setMessage('No máximo 10 símbolos por pedido.')
       return
     }
     setBusy(true)
@@ -182,6 +207,28 @@ export function CandleDownloadPanel({ open, onClose }: Props) {
           API não configurada. No cliente, define{' '}
           <code>VITE_CANDLES_API_URL</code> (ex. http://192.168.1.216:8080).
         </p>
+      ) : null}
+
+      {configured ? (
+        <div className="candle-download-block candle-download-key">
+          <h3>Chave API</h3>
+          <p className="candle-download-hint">
+            A API exige <code>X-API-Key</code>. A chave fica só nesta sessão do
+            browser — não uses variáveis <code>VITE_*</code> para segredos.
+          </p>
+          <div className="range-row">
+            <input
+              type="password"
+              autoComplete="off"
+              placeholder="CANDLES_API_KEY"
+              value={apiKeyInput}
+              onChange={(e) => setApiKeyInput(e.target.value)}
+            />
+            <button type="button" className="btn ghost" onClick={saveApiKey}>
+              Guardar
+            </button>
+          </div>
+        </div>
       ) : null}
 
       {loadError ? <p className="candle-download-warn">{loadError}</p> : null}

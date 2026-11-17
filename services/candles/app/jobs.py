@@ -44,6 +44,9 @@ async def enqueue_backfill(
     cleaned = [s.strip().upper() for s in symbols if s and s.strip()]
     if not cleaned:
         raise ValueError("symbols must be a non-empty list")
+    max_syms = settings.max_backfill_symbols
+    if len(cleaned) > max_syms:
+        raise ValueError(f"at most {max_syms} symbols per backfill request")
 
     from_ts = _parse_iso(from_iso)
     to_ts = _parse_iso(to_iso)
@@ -55,6 +58,10 @@ async def enqueue_backfill(
         from_ts = to_ts - timedelta(days=max(1, settings.ingest_backfill_days))
     if from_ts >= to_ts:
         raise ValueError("from must be before to")
+    span = to_ts - from_ts
+    max_days = settings.max_backfill_days
+    if span > timedelta(days=max_days):
+        raise ValueError(f"backfill range must be <= {max_days} days")
 
     progress = {
         sym: {"status": "queued", "bars": 0, "error": None} for sym in cleaned

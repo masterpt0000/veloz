@@ -51,12 +51,33 @@ const DEFAULT_CANDLES_API_URL = 'http://192.168.1.216:8080'
 const API_URL = (
   (import.meta.env.VITE_CANDLES_API_URL as string | undefined) || DEFAULT_CANDLES_API_URL
 ).replace(/\/$/, '')
-const API_KEY = import.meta.env.VITE_CANDLES_API_KEY as string | undefined
+
+/** Session-only API key — never use VITE_* for secrets (Vite inlines them into the bundle). */
+const API_KEY_STORAGE = 'veloz.candlesApiKey'
+
+export function getCandlesApiKey(): string {
+  try {
+    return sessionStorage.getItem(API_KEY_STORAGE)?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function setCandlesApiKey(key: string): void {
+  const trimmed = key.trim()
+  try {
+    if (trimmed) sessionStorage.setItem(API_KEY_STORAGE, trimmed)
+    else sessionStorage.removeItem(API_KEY_STORAGE)
+  } catch {
+    // ignore quota / private mode
+  }
+}
 
 function apiHeaders(json = false): HeadersInit {
   const headers: HeadersInit = { Accept: 'application/json' }
   if (json) headers['Content-Type'] = 'application/json'
-  if (API_KEY) headers['X-API-Key'] = API_KEY
+  const key = getCandlesApiKey()
+  if (key) headers['X-API-Key'] = key
   return headers
 }
 
