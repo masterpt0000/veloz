@@ -45,10 +45,12 @@ export interface BackfillJob {
   finishedAt: string | null
 }
 
-const API_URL = (import.meta.env.VITE_CANDLES_API_URL as string | undefined)?.replace(
-  /\/$/,
-  '',
-)
+/** LAN candles API on m4st3r — only reachable from Tiago's home network. */
+const DEFAULT_CANDLES_API_URL = 'http://192.168.1.216:8080'
+
+const API_URL = (
+  (import.meta.env.VITE_CANDLES_API_URL as string | undefined) || DEFAULT_CANDLES_API_URL
+).replace(/\/$/, '')
 const API_KEY = import.meta.env.VITE_CANDLES_API_KEY as string | undefined
 
 function apiHeaders(json = false): HeadersInit {
