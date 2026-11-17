@@ -9,7 +9,10 @@ import { StrategyEditor } from './components/StrategyEditor'
 import { StrategyModeTabs } from './components/StrategyModeTabs'
 import { StrategyToolbar } from './components/StrategyToolbar'
 import { BAR_COUNTS, SYMBOLS, TIMEFRAMES } from './data/symbols'
-import { generateMarketData } from './data/generateMarketData'
+import {
+  fetchMarketData,
+  generateMarketData,
+} from './data/generateMarketData'
 import { runBacktest } from './strategy/runBacktest'
 import {
   defaultBuilderSpec,
@@ -100,15 +103,26 @@ export default function App() {
 
   useEffect(() => {
     if (pane === 'builder') return
+    let cancelled = false
     const t0 = performance.now()
-    const next = generateMarketData(symbol, timeframe, barCount)
-    startTransition(() => {
-      setBars(next)
-      setDataMs(performance.now() - t0)
-      setResult(null)
-      setError(null)
-      setIndicatorVisibility({})
-    })
+
+    async function loadBars() {
+      const live = await fetchMarketData(symbol.id, timeframe, barCount)
+      if (cancelled) return
+      const next = live ?? generateMarketData(symbol, timeframe, barCount)
+      startTransition(() => {
+        setBars(next)
+        setDataMs(performance.now() - t0)
+        setResult(null)
+        setError(null)
+        setIndicatorVisibility({})
+      })
+    }
+
+    void loadBars()
+    return () => {
+      cancelled = true
+    }
   }, [symbol, timeframe, barCount, pane])
 
   const deferredBars = useDeferredValue(bars)

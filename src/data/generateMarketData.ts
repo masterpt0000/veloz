@@ -1,5 +1,6 @@
 import type { Bar, SymbolInfo, Timeframe } from '../types'
 import { getTimeframeSeconds } from './symbols'
+import { fetchCandles, isCandlesApiConfigured } from './candlesApi'
 
 /** Mulberry32 — fast deterministic PRNG for reproducible demo series. */
 function mulberry32(seed: number): () => number {
@@ -14,7 +15,7 @@ function mulberry32(seed: number): () => number {
 
 /**
  * Generate OHLC(+volume) bars offline. No API keys required.
- * Optional hook: swap this module for a real feed later (see fetchMarketData stub).
+ * Used as demo fallback when `VITE_CANDLES_API_URL` is unset or the API fails.
  */
 export function generateMarketData(
   symbol: SymbolInfo,
@@ -55,12 +56,21 @@ export function generateMarketData(
   return bars
 }
 
-/** Placeholder for a future real-data adapter. */
+/**
+ * Prefer live candles API when `VITE_CANDLES_API_URL` is set; otherwise null (demo).
+ * Symbol ids are passed through as-is (e.g. BTCUSDT once the UI lists Binance pairs).
+ */
 export async function fetchMarketData(
-  _symbolId: string,
-  _timeframe: Timeframe,
-  _barCount: number,
+  symbolId: string,
+  timeframe: Timeframe,
+  barCount: number,
 ): Promise<Bar[] | null> {
-  // Wire an exchange/HTTP API here when keys exist. Return null to keep sample data.
-  return null
+  if (!isCandlesApiConfigured()) return null
+  const page = await fetchCandles({
+    symbol: symbolId,
+    timeframe,
+    limit: Math.min(barCount, 50_000),
+  })
+  if (!page || page.bars.length === 0) return null
+  return page.bars
 }
