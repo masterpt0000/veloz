@@ -1009,6 +1009,210 @@ input {
   }
 }
 
+.candle-download {
+  position: relative;
+  z-index: 1;
+  margin: 0 16px 0;
+  padding: 12px 16px 14px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 8px 28px rgba(11, 61, 54, 0.06);
+  max-height: min(42vh, 420px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  animation: candle-panel-in 0.28s ease-out;
+}
+
+@keyframes candle-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.candle-download-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.candle-download-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.candle-download-head p {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  max-width: 40rem;
+  line-height: 1.4;
+}
+
+.candle-download-warn {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  color: var(--warm);
+}
+
+.candle-download-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.candle-download-block h3 {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.symbol-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.chip-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.65);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chip-toggle input {
+  accent-color: var(--accent);
+}
+
+.custom-symbol-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.custom-symbol-row input,
+.date-fields input[type='date'] {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--ink);
+  outline: none;
+}
+
+.custom-symbol-row input:focus,
+.date-fields input[type='date']:focus {
+  border-color: rgba(15, 118, 110, 0.55);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.range-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-bottom: 8px;
+}
+
+.date-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.hint-inline {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.block-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.block-head-row h3 {
+  margin: 0;
+}
+
+.coverage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.coverage-table th,
+.coverage-table td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.coverage-table th {
+  color: var(--muted);
+  font-weight: 650;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.candle-job-status {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+}
+
+.candle-job-status ul {
+  margin: 6px 0 0;
+  padding-left: 1.1rem;
+}
+
+.job-error {
+  color: var(--warm);
+}
+
+@media (max-width: 960px) {
+  .candle-download-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .candle-download {
+    margin: 0 12px;
+    max-height: min(50vh, 480px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pill.running {
     animation: none;
@@ -1016,5 +1220,9 @@ input {
 
   .btn {
     transition: none;
+  }
+
+  .candle-download {
+    animation: none;
   }
 }

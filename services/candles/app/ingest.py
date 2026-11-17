@@ -66,32 +66,57 @@ async def fetch_klines(
     return r.json()
 
 
-async def backfill_symbol(client: httpx.AsyncClient, symbol: str, days: int) -> int:
+async def backfill_symbol_range(
+    client: httpx.AsyncClient,
+    symbol: str,
+    start: datetime,
+    end: datetime,
+) -> int:
+    """Fetch 1m klines for [start, end) and upsert. end is exclusive-ish (open times < end)."""
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
     now = datetime.now(timezone.utc)
-    existing = latest_ts(symbol)
-    if existing is not None:
-        start = existing - timedelta(minutes=1)  # refresh last closed bar
-    else:
-        start = now - timedelta(days=days)
+    # Never request past "now"; drop the forming minute
+    end = min(end, now)
+    if start >= end:
+        return 0
 
     total = 0
     cursor = start
-    end = now
 
     while cursor < end:
         batch = await fetch_klines(client, symbol, _ms(cursor), _ms(end))
         if not batch:
             break
         rows = [_parse_kline(symbol, k) for k in batch]
-        # Drop the forming (incomplete) last candle if openTime is current minute
-        last_open = rows[-1][1]
-        if last_open + timedelta(minutes=1) > now:
-            rows = rows[:-1]
-        if not rows:
-            break
-        n = upsert_candles(rows)
+        # Keep only bars whose open is in [start, end) and fully closed
+        filtered: list[tuple[str, datetime, float, float, float, float, float, str]] = []
+        for row in rows:
+            ts = row[1]
+            if ts < start:
+                continue
+            if ts >= end:
+                continue
+            if ts + timedelta(minutes=1) > now:
+                continue
+            filtered.append(row)
+        if not filtered:
+            # Advance past an empty/forming window
+            last_raw = rows[-1][1]
+            next_cursor = last_raw + timedelta(minutes=1)
+            if next_cursor <= cursor:
+                break
+            cursor = next_cursor
+            if len(batch) < KLINE_LIMIT:
+                break
+            await asyncio.sleep(0.15)
+            continue
+
+        n = upsert_candles(filtered)
         total += n
-        last_ts = rows[-1][1]
+        last_ts = filtered[-1][1]
         next_cursor = last_ts + timedelta(minutes=1)
         if next_cursor <= cursor:
             break
@@ -100,8 +125,33 @@ async def backfill_symbol(client: httpx.AsyncClient, symbol: str, days: int) -> 
             break
         await asyncio.sleep(0.15)
 
-    log.info("backfill %s: upserted ~%s bars (start=%s)", symbol, total, start.isoformat())
+    log.info(
+        "backfill %s: upserted ~%s bars (%s → %s)",
+        symbol,
+        total,
+        start.isoformat(),
+        end.isoformat(),
+    )
     return total
+
+
+async def backfill_symbol(client: httpx.AsyncClient, symbol: str, days: int) -> int:
+    """Incremental-friendly backfill: from last DB bar (or N days ago) until now."""
+    now = datetime.now(timezone.utc)
+    existing = latest_ts(symbol)
+    if existing is not None:
+        start = existing - timedelta(minutes=1)  # refresh last closed bar
+    else:
+        start = now - timedelta(days=days)
+    return await backfill_symbol_range(client, symbol, start, now)
+
+
+async def daily_sync_symbol(client: httpx.AsyncClient, symbol: str) -> int:
+    """Fill previous UTC calendar day's 1m candles for one symbol."""
+    now = datetime.now(timezone.utc)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday = today - timedelta(days=1)
+    return await backfill_symbol_range(client, symbol, yesterday, today)
 
 
 async def ingest_loop(stop: asyncio.Event) -> None:

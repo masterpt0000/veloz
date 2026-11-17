@@ -1,4 +1,5 @@
 import { startTransition, useDeferredValue, useEffect, useState } from 'react'
+import { CandleDownloadPanel } from './components/CandleDownloadPanel'
 import { ChartPane } from './components/ChartPane'
 import { IndicatorLegend } from './components/IndicatorLegend'
 import { ResultsPanel } from './components/ResultsPanel'
@@ -8,6 +9,7 @@ import { StrategyBuilderForm } from './components/StrategyBuilderForm'
 import { StrategyEditor } from './components/StrategyEditor'
 import { StrategyModeTabs } from './components/StrategyModeTabs'
 import { StrategyToolbar } from './components/StrategyToolbar'
+import { isCandlesApiConfigured } from './data/candlesApi'
 import { BAR_COUNTS, SYMBOLS, TIMEFRAMES } from './data/symbols'
 import {
   fetchMarketData,
@@ -90,6 +92,8 @@ export default function App() {
   const [indicatorVisibility, setIndicatorVisibility] = useState<
     Record<string, boolean>
   >({})
+  const [dataPanelOpen, setDataPanelOpen] = useState(false)
+  const candlesLive = isCandlesApiConfigured()
 
   const symbol = SYMBOLS.find((s) => s.id === symbolId) ?? SYMBOLS[0]
   const code = active.code
@@ -352,14 +356,28 @@ export default function App() {
             />
             <span>Volume</span>
           </label>
+
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => setDataPanelOpen((v) => !v)}
+          >
+            {dataPanelOpen ? 'Ocultar dados' : 'Dados BD'}
+          </button>
         </div>
 
         <div className="topbar-meta">
-          <span className="pill muted">
-            dados demo · {deferredBars.length.toLocaleString('pt-PT')} · {dataMs.toFixed(0)} ms
+          <span className={`pill ${candlesLive ? '' : 'muted'}`}>
+            {candlesLive ? 'API candles' : 'dados demo'} ·{' '}
+            {deferredBars.length.toLocaleString('pt-PT')} · {dataMs.toFixed(0)} ms
           </span>
         </div>
       </header>
+
+      <CandleDownloadPanel
+        open={dataPanelOpen}
+        onClose={() => setDataPanelOpen(false)}
+      />
 
       <main className="workspace workspace-chart">
         <section className="chart-section">
