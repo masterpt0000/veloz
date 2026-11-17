@@ -1067,6 +1067,33 @@ input {
   color: var(--warm);
 }
 
+.candle-download-key {
+  margin-bottom: 12px;
+}
+
+.candle-download-hint {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+  max-width: 40rem;
+}
+
+.candle-download-key .range-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.candle-download-key input[type='password'] {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
 .candle-download-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
