@@ -1,0 +1,44 @@
+# Veloz candle store: TimescaleDB + HTTP API + Binance ingest
+# Usage (Ubuntu / m4st3r): docker compose up -d --build
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: veloz-timescaledb
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-veloz}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-veloz}
+      POSTGRES_DB: ${POSTGRES_DB:-veloz_candles}
+    ports:
+      - "${TIMESCALE_PORT:-5432}:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./services/candles/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-veloz} -d ${POSTGRES_DB:-veloz_candles}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  candles-api:
+    build: ./services/candles
+    container_name: veloz-candles-api
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-veloz}:${POSTGRES_PASSWORD:-veloz}@timescaledb:5432/${POSTGRES_DB:-veloz_candles}
+      CANDLES_API_KEY: ${CANDLES_API_KEY:-}
+      BINANCE_MARKET: ${BINANCE_MARKET:-spot}
+      BINANCE_REST_URL: ${BINANCE_REST_URL:-}
+      BINANCE_SYMBOLS: ${BINANCE_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
+      INGEST_BACKFILL_DAYS: ${INGEST_BACKFILL_DAYS:-7}
+      INGEST_POLL_SECONDS: ${INGEST_POLL_SECONDS:-30}
+      RUN_INGEST: ${RUN_INGEST:-1}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    ports:
+      - "${CANDLES_API_PORT:-8080}:8080"
+    restart: unless-stopped
+
+volumes:
+  timescale_data:

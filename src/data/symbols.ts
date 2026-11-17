@@ -1,9 +1,11 @@
 import type { SymbolInfo, Timeframe } from '../types'
 
 export const SYMBOLS: SymbolInfo[] = [
+  { id: 'BTCUSDT', label: 'BTC/USDT', basePrice: 64200, volatility: 0.018, seed: 77 },
+  { id: 'ETHUSDT', label: 'ETH/USDT', basePrice: 3200, volatility: 0.022, seed: 88 },
+  { id: 'SOLUSDT', label: 'SOL/USDT', basePrice: 145, volatility: 0.03, seed: 99 },
   { id: 'EURUSD', label: 'EUR/USD', basePrice: 1.085, volatility: 0.00035, seed: 11 },
   { id: 'AAPL', label: 'AAPL', basePrice: 178.4, volatility: 0.012, seed: 42 },
-  { id: 'BTCUSD', label: 'BTC/USD', basePrice: 64200, volatility: 0.018, seed: 77 },
   { id: 'PETR4', label: 'PETR4', basePrice: 38.2, volatility: 0.016, seed: 23 },
 ]
 
