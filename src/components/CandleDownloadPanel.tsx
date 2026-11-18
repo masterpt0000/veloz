@@ -62,9 +62,11 @@ function statusLabel(status: string): string {
 interface Props {
   open: boolean
   onClose: () => void
+  /** Notify chart ATIVO when BD coverage changes (key save, refresh, backfill done). */
+  onCoverageChange?: (rows: SymbolCoverage[]) => void
 }
 
-export function CandleDownloadPanel({ open, onClose }: Props) {
+export function CandleDownloadPanel({ open, onClose, onCoverageChange }: Props) {
   const configured = isCandlesApiConfigured()
   const [coverage, setCoverage] = useState<SymbolCoverage[]>([])
   const [selected, setSelected] = useState<Set<string>>(
@@ -97,6 +99,7 @@ export function CandleDownloadPanel({ open, onClose }: Props) {
     }
     setLoadError(null)
     setCoverage(rows)
+    onCoverageChange?.(rows)
   }
 
   function saveApiKey() {

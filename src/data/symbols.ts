@@ -9,6 +9,51 @@ export const SYMBOLS: SymbolInfo[] = [
   { id: 'PETR4', label: 'PETR4', basePrice: 38.2, volatility: 0.016, seed: 23 },
 ]
 
+const KNOWN_BY_ID = new Map(SYMBOLS.map((s) => [s.id, s]))
+
+/** BTCUSDT → BTC/USDT; unknown ids keep the raw symbol. */
+export function formatSymbolLabel(id: string): string {
+  const known = KNOWN_BY_ID.get(id)
+  if (known) return known.label
+  if (id.endsWith('USDT') && id.length > 4) return `${id.slice(0, -4)}/USDT`
+  if (id.endsWith('USD') && id.length > 3) return `${id.slice(0, -3)}/USD`
+  return id
+}
+
+function seedFromId(id: string): number {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  return h || 1
+}
+
+/** Build SymbolInfo for chart/demo fallback; reuse known presets when present. */
+export function symbolInfoFromId(id: string): SymbolInfo {
+  const known = KNOWN_BY_ID.get(id)
+  if (known) return known
+  return {
+    id,
+    label: formatSymbolLabel(id),
+    basePrice: 100,
+    volatility: 0.02,
+    seed: seedFromId(id),
+  }
+}
+
+/**
+ * ATIVO options from candles BD coverage (symbols with bars).
+ * Empty / failed coverage → fall back to the static SYMBOLS demo list.
+ */
+export function chartSymbolsFromCoverage(
+  coverage: { symbol: string; barCount: number }[] | null | undefined,
+): SymbolInfo[] {
+  if (!coverage?.length) return SYMBOLS
+  const withBars = coverage
+    .filter((row) => row.barCount > 0 && row.symbol.trim())
+    .map((row) => symbolInfoFromId(row.symbol.trim().toUpperCase()))
+    .sort((a, b) => a.id.localeCompare(b.id))
+  return withBars.length > 0 ? withBars : SYMBOLS
+}
+
 export const TIMEFRAMES: { id: Timeframe; label: string; seconds: number }[] = [
   { id: '1m', label: '1m', seconds: 60 },
   { id: '5m', label: '5m', seconds: 300 },
