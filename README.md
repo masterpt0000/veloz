@@ -9,7 +9,7 @@ npm run dev
 
 Open `http://127.0.0.1:5173`. Edit the strategy, click **Executar backtest**.
 
-No painel **Dados BD** podes escolher símbolos Binance e o intervalo a descarregar para a Timescale; o gráfico continua a pedir só janelas via `GET /candles`. A chave da API introduz-se aí (fica só na sessão do browser).
+No painel **Dados BD** podes escolher símbolos Binance e o intervalo a descarregar para a Timescale; o gráfico continua a pedir só janelas via `GET /candles`. Em modo LAN aberto não é preciso chave; se o servidor tiver `CANDLES_API_KEY`, podes colá-la aí (só na sessão do browser).
 
 ---
 
@@ -21,33 +21,34 @@ No painel **Dados BD** podes escolher símbolos Binance e o intervalo a descarre
 
 | Service | Default port | Role |
 |---|---|---|
-| `timescaledb` | `127.0.0.1:5432` | Postgres + Timescale hypertable `candles_1m` (loopback only) |
+| `timescaledb` | `0.0.0.0:5432` | Postgres + Timescale hypertable `candles_1m` (open on LAN) |
 | `candles-api` | `8080` | FastAPI: chart reads, symbol coverage, backfill jobs, daily sync + optional Binance poller |
 
 ### Run on Ubuntu (e.g. m4st3r)
 
-Requires Docker + Docker Compose plugin.
+Requires Docker + Docker Compose plugin. **Open-LAN defaults:** empty API key, `CORS_ORIGINS=*`, Postgres bound to all interfaces. Keep a strong `POSTGRES_PASSWORD`.
 
 ```bash
 cd /path/to/veloz
 cp .env.example .env
-# REQUIRED — generate strong secrets (never commit .env):
+# REQUIRED — strong DB password (never commit .env):
 #   openssl rand -hex 24   → POSTGRES_PASSWORD
-#   openssl rand -hex 32   → CANDLES_API_KEY
+# Leave CANDLES_API_KEY empty for open LAN; set (≥16 chars) only if you want auth.
 nano .env
 docker compose up -d --build
 ```
 
-**Rotate on an existing deploy:** set new `POSTGRES_PASSWORD` / `CANDLES_API_KEY` in `.env`, then `ALTER USER … PASSWORD` (or recreate the volume) and `docker compose up -d --build`. Prefer rotating away from any old `veloz` password.
+**Rotate on an existing deploy:** set new `POSTGRES_PASSWORD` in `.env`, then `ALTER USER … PASSWORD` (or recreate the volume) and `docker compose up -d --build`. Prefer rotating away from any old `veloz` password.
 
-Check health and a sample window (API routes except `/health` need the key):
+Check health and a sample window (no key needed when `CANDLES_API_KEY` is empty):
 
 ```bash
 curl -s http://127.0.0.1:8080/health | jq
-curl -s -H "X-API-Key: $CANDLES_API_KEY" \
-  'http://127.0.0.1:8080/candles?symbol=BTCUSDT&timeframe=1h&limit=5' | jq
-curl -s -H "X-API-Key: $CANDLES_API_KEY" http://127.0.0.1:8080/symbols | jq
+curl -s 'http://127.0.0.1:8080/candles?symbol=BTCUSDT&timeframe=1h&limit=5' | jq
+curl -s http://127.0.0.1:8080/symbols | jq
 ```
+
+If auth is enabled, add `-H "X-API-Key: $CANDLES_API_KEY"`.
 
 Logs / restart:
 
@@ -63,10 +64,10 @@ docker compose down -v # wipe DB
 |---|---|---|
 | `POSTGRES_USER` / `DB` | `veloz` / `veloz_candles` | DB user / database name |
 | `POSTGRES_PASSWORD` | **required** | Strong DB password (`openssl rand -hex 24`). No weak default. |
-| `TIMESCALE_PORT` | `5432` | Host port for Postgres (**bound to 127.0.0.1**) |
+| `TIMESCALE_PORT` | `5432` | Host port for Postgres (**bound to 0.0.0.0** / LAN) |
 | `CANDLES_API_PORT` | `8080` | Host port for the HTTP API |
-| `CANDLES_API_KEY` | **required** (≥16 chars) | Always required as `X-API-Key` on API routes except `/health` |
-| `CORS_ORIGINS` | localhost + `https://veloz.apps.grok.bot` | Explicit allow-list (comma-separated). `*` rejected. |
+| `CANDLES_API_KEY` | empty (open) | Empty = no auth. If set (≥16 chars), required as `X-API-Key` on routes except `/health` |
+| `CORS_ORIGINS` | `*` | `*` = any origin (LAN open). Or comma-separated allowlist to lock down. |
 | `MAX_BACKFILL_SYMBOLS` | `10` | Max symbols per `POST /backfill` |
 | `MAX_BACKFILL_DAYS` | `366` | Max `from`→`to` span for backfill |
 | `BINANCE_MARKET` | `spot` | `spot` or `futures` (USDT-M) |
@@ -82,7 +83,7 @@ Frontend (Vite) — URL only; **never** put the API key in a `VITE_*` variable (
 |---|---|---|
 | `VITE_CANDLES_API_URL` | `http://192.168.1.216:8080` | Candles API base URL (no trailing slash) |
 
-How Veloz sends the key: paste `CANDLES_API_KEY` in the **Dados BD** panel → stored in `sessionStorage` for this tab only and sent as `X-API-Key`. Alternatives: run Veloz locally on the LAN, or put a same-origin reverse proxy in front of the API that injects the header.
+Optional key: if the server has `CANDLES_API_KEY` set, paste it in the **Dados BD** panel → `sessionStorage` for this tab only → sent as `X-API-Key`. With an empty server key, leave the field blank (header is not sent).
 
 If the API URL is unreachable or the request fails, Veloz keeps using the in-browser demo generator.
 
@@ -91,7 +92,7 @@ If the API URL is unreachable or the request fails, Veloz keeps using the in-bro
 ```
 GET  /candles?symbol=BTCUSDT&timeframe=1h&from=&to=&before=&limit=
 GET  /v1/candles          # same (chart path — keep this fast)
-GET  /health              # open (no API key)
+GET  /health              # always open
 GET  /symbols             # symbols in DB + min/max ts + bar count
 POST /backfill            # { "symbols": ["BTCUSDT"], "from": "ISO", "to": "ISO" }
 GET  /backfill/{job_id}   # poll queued|running|done|error
@@ -99,7 +100,7 @@ GET  /backfill            # recent jobs
 POST /daily-sync          # fill yesterday (UTC) for every symbol already in DB
 ```
 
-All routes except `/health` require header `X-API-Key: <CANDLES_API_KEY>`.
+When `CANDLES_API_KEY` is empty, all routes are open. When set, routes except `/health` require `X-API-Key: <CANDLES_API_KEY>`.
 
 - `timeframe`: `1m` \| `5m` \| `15m` \| `1h` \| `4h` \| `1D`
 - `from` / `to` on `/candles`: unix seconds (inclusive / exclusive)
@@ -108,12 +109,11 @@ All routes except `/health` require header `X-API-Key: <CANDLES_API_KEY>`.
 - `limit`: default `5000`, max `50000`
 - Response bars match Veloz `Bar`: `{ time, open, high, low, close, volume }` (`time` = UTC seconds)
 
-Example backfill:
+Example backfill (open LAN):
 
 ```bash
 curl -s -X POST http://127.0.0.1:8080/backfill \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: $CANDLES_API_KEY" \
   -d '{"symbols":["BTCUSDT","ETHUSDT"],"from":"2026-11-01T00:00:00Z"}' | jq
 ```
 
@@ -144,10 +144,10 @@ Add (runs daily at 01:15 local time):
 15 1 * * * docker exec veloz-candles-api python -m app.daily_sync >> /var/log/veloz-daily-sync.log 2>&1
 ```
 
-**Alternative (HTTP):**
+**Alternative (HTTP)** — no key needed in open mode:
 
 ```cron
-15 1 * * * curl -fsS -X POST -H "X-API-Key: $CANDLES_API_KEY" http://127.0.0.1:8080/daily-sync >> /var/log/veloz-daily-sync.log 2>&1
+15 1 * * * curl -fsS -X POST http://127.0.0.1:8080/daily-sync >> /var/log/veloz-daily-sync.log 2>&1
 ```
 
 New symbols are **not** picked up by the daily job until they have at least one bar (use the Veloz **Dados BD** panel or `POST /backfill` once).
@@ -157,10 +157,10 @@ New symbols are **not** picked up by the daily job until they have at least one 
 On the machine running the Vite app (or a built static host):
 
 ```bash
-# .env.local — URL only, never the API key
+# .env.local — URL only
 VITE_CANDLES_API_URL=http://192.168.1.216:8080
 ```
 
-Restart `npm run dev` (or rebuild). Open **Dados BD**, paste the API key, Guardar. Symbol ids such as `BTCUSDT` must match ingested Binance symbols.
+Restart `npm run dev` (or rebuild). Open **Dados BD** — with open LAN you do not need a key. Symbol ids such as `BTCUSDT` must match ingested Binance symbols.
 
-**LAN note:** `192.168.1.216:8080` is only reachable on Tiago’s home LAN. From outside the LAN use a tunnel/VPN, or run Veloz locally against the API.
+**LAN note:** `192.168.1.216:8080` (and Postgres `:5432`) are reachable on Tiago’s home LAN. From outside the LAN use a tunnel/VPN, or run Veloz locally against the API.
