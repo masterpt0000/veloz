@@ -1,6 +1,6 @@
 # Veloz candle store: TimescaleDB + HTTP API + Binance ingest
-# Usage (Ubuntu / m4st3r) — open LAN by default:
-#   cp .env.example .env   # set POSTGRES_PASSWORD (required); leave CANDLES_API_KEY empty
+# Usage (Ubuntu / m4st3r):
+#   cp .env.example .env   # set POSTGRES_PASSWORD + CANDLES_API_KEY (required)
 #   docker compose up -d --build
 
 services:
@@ -11,9 +11,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-veloz}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (openssl rand -hex 24)}
       POSTGRES_DB: ${POSTGRES_DB:-veloz_candles}
-    # Bind Postgres to all interfaces so LAN clients can reach the DB.
+    # Bind DB to loopback only — not the LAN.
     ports:
-      - "${TIMESCALE_PORT:-5432}:5432"
+      - "127.0.0.1:${TIMESCALE_PORT:-5432}:5432"
     volumes:
       - timescale_data:/var/lib/postgresql/data
       - ./services/candles/migrations:/docker-entrypoint-initdb.d:ro
@@ -31,15 +31,14 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-veloz}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-veloz_candles}
-      # Empty = open LAN (no X-API-Key). Set a ≥16-char key to require auth.
-      CANDLES_API_KEY: ${CANDLES_API_KEY:-}
+      CANDLES_API_KEY: ${CANDLES_API_KEY:?Set CANDLES_API_KEY in .env (openssl rand -hex 32)}
       BINANCE_MARKET: ${BINANCE_MARKET:-spot}
       BINANCE_REST_URL: ${BINANCE_REST_URL:-}
       BINANCE_SYMBOLS: ${BINANCE_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
       INGEST_BACKFILL_DAYS: ${INGEST_BACKFILL_DAYS:-7}
       INGEST_POLL_SECONDS: ${INGEST_POLL_SECONDS:-30}
       RUN_INGEST: ${RUN_INGEST:-1}
-      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:4173,http://localhost:4173,https://veloz.apps.grok.bot}
       MAX_BACKFILL_SYMBOLS: ${MAX_BACKFILL_SYMBOLS:-10}
       MAX_BACKFILL_DAYS: ${MAX_BACKFILL_DAYS:-366}
     ports:
