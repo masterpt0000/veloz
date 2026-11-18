@@ -86,11 +86,13 @@ export function CandleDownloadPanel({ open, onClose }: Props) {
 
   async function refreshCoverage() {
     if (!configured) return
+    if (!getCandlesApiKey()) {
+      setLoadError('Introduz a chave da API (X-API-Key) para ler a BD.')
+      return
+    }
     const rows = await fetchSymbolCoverage()
     if (rows == null) {
-      setLoadError(
-        'Não foi possível ler a cobertura na BD (rede, CORS ou chave inválida).',
-      )
+      setLoadError('Não foi possível ler a cobertura na BD (rede ou chave inválida).')
       return
     }
     setLoadError(null)
@@ -151,6 +153,10 @@ export function CandleDownloadPanel({ open, onClose }: Props) {
       setMessage('Define VITE_CANDLES_API_URL para usar a API de candles.')
       return
     }
+    if (!getCandlesApiKey()) {
+      setMessage('Introduz e guarda a chave da API antes de descarregar.')
+      return
+    }
     const symbols = [...selected]
     if (symbols.length === 0) {
       setMessage('Escolhe pelo menos um símbolo.')
@@ -205,17 +211,16 @@ export function CandleDownloadPanel({ open, onClose }: Props) {
 
       {configured ? (
         <div className="candle-download-block candle-download-key">
-          <h3>Chave API (opcional)</h3>
+          <h3>Chave API</h3>
           <p className="candle-download-hint">
-            Em modo LAN aberto a API não exige chave. Se o servidor tiver{' '}
-            <code>CANDLES_API_KEY</code> definido, cola-o aqui — fica só nesta
-            sessão (não uses <code>VITE_*</code> para segredos).
+            A API exige <code>X-API-Key</code>. A chave fica só nesta sessão do
+            browser — não uses variáveis <code>VITE_*</code> para segredos.
           </p>
           <div className="range-row">
             <input
               type="password"
               autoComplete="off"
-              placeholder="opcional — só se a API exigir"
+              placeholder="CANDLES_API_KEY"
               value={apiKeyInput}
               onChange={(e) => setApiKeyInput(e.target.value)}
             />

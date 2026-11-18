@@ -144,11 +144,6 @@ async def lifespan(_app: FastAPI):
     wait_for_db()
     ensure_schema()
     log.info("database ready")
-    if settings.api_auth_enabled:
-        log.info("API auth enabled (X-API-Key required)")
-    else:
-        log.info("API auth disabled (open LAN — CANDLES_API_KEY empty)")
-    log.info("CORS origins: %s", settings.cors_origins)
     if settings.run_ingest:
         _stop_ingest = asyncio.Event()
         _ingest_task = asyncio.create_task(ingest_loop(_stop_ingest))
@@ -176,9 +171,7 @@ app.add_middleware(
 def require_api_key(
     x_api_key: Annotated[str | None, Header()] = None,
 ) -> None:
-    """When CANDLES_API_KEY is set, require matching X-API-Key. Empty key = open LAN."""
-    if not settings.api_auth_enabled:
-        return
+    """API key is always required (except /health)."""
     expected = settings.candles_api_key
     if not x_api_key or x_api_key != expected:
         raise HTTPException(status_code=401, detail="invalid or missing X-API-Key")
