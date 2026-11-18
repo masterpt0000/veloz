@@ -2,16 +2,8 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# Safe browser origins for the Veloz SPA (no wildcard).
-_DEFAULT_CORS = ",".join(
-    [
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-        "http://127.0.0.1:4173",
-        "http://localhost:4173",
-        "https://veloz.apps.grok.bot",
-    ]
-)
+# Open-LAN default: any browser origin. Set an explicit comma-list to lock down.
+_DEFAULT_CORS = "*"
 
 
 class Settings(BaseSettings):
@@ -19,7 +11,8 @@ class Settings(BaseSettings):
 
     # Required — no guessable fallback password in shipped files.
     database_url: str = Field(min_length=1)
-    candles_api_key: str = Field(min_length=16)
+    # Empty = open mode (no X-API-Key). If set, must be ≥16 chars.
+    candles_api_key: str = ""
 
     cors_origins: str = _DEFAULT_CORS
     host: str = "0.0.0.0"
@@ -53,27 +46,29 @@ class Settings(BaseSettings):
 
     @field_validator("candles_api_key")
     @classmethod
-    def _require_api_key(cls, value: str) -> str:
-        key = value.strip()
+    def _optional_api_key(cls, value: str) -> str:
+        key = (value or "").strip()
+        if not key:
+            return ""
         if len(key) < 16:
             raise ValueError(
-                "CANDLES_API_KEY is required (min 16 chars); "
-                "generate with: openssl rand -hex 32"
+                "CANDLES_API_KEY, when set, must be at least 16 chars; "
+                "generate with: openssl rand -hex 32 (or leave empty for open LAN)"
             )
         return key
 
     @field_validator("cors_origins")
     @classmethod
-    def _no_wildcard_cors(cls, value: str) -> str:
-        raw = value.strip()
+    def _normalize_cors(cls, value: str) -> str:
+        raw = (value or "").strip()
         if not raw or raw == "*":
-            raise ValueError(
-                "CORS_ORIGINS must be an explicit comma-separated allowlist "
-                "(wildcard '*' is not allowed)"
-            )
+            return "*"
         parts = [o.strip() for o in raw.split(",") if o.strip()]
+        if not parts:
+            return "*"
+        # Mixed "*" + specific origins is meaningless — treat as open.
         if any(p == "*" for p in parts):
-            raise ValueError("CORS_ORIGINS must not include '*'")
+            return "*"
         return ",".join(parts)
 
     @model_validator(mode="after")
@@ -89,7 +84,13 @@ class Settings(BaseSettings):
         return [s.strip().upper() for s in self.binance_symbols.split(",") if s.strip()]
 
     @property
+    def api_auth_enabled(self) -> bool:
+        return bool(self.candles_api_key)
+
+    @property
     def cors_origin_list(self) -> list[str]:
+        if self.cors_origins.strip() == "*":
+            return ["*"]
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
