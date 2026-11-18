@@ -9,8 +9,18 @@ import { StrategyBuilderForm } from './components/StrategyBuilderForm'
 import { StrategyEditor } from './components/StrategyEditor'
 import { StrategyModeTabs } from './components/StrategyModeTabs'
 import { StrategyToolbar } from './components/StrategyToolbar'
-import { isCandlesApiConfigured } from './data/candlesApi'
-import { BAR_COUNTS, SYMBOLS, TIMEFRAMES } from './data/symbols'
+import {
+  fetchSymbolCoverage,
+  getCandlesApiKey,
+  isCandlesApiConfigured,
+  type SymbolCoverage,
+} from './data/candlesApi'
+import {
+  BAR_COUNTS,
+  chartSymbolsFromCoverage,
+  SYMBOLS,
+  TIMEFRAMES,
+} from './data/symbols'
 import {
   fetchMarketData,
   generateMarketData,
@@ -93,9 +103,10 @@ export default function App() {
     Record<string, boolean>
   >({})
   const [dataPanelOpen, setDataPanelOpen] = useState(false)
+  const [chartSymbols, setChartSymbols] = useState(SYMBOLS)
   const candlesLive = isCandlesApiConfigured()
 
-  const symbol = SYMBOLS.find((s) => s.id === symbolId) ?? SYMBOLS[0]
+  const symbol = chartSymbols.find((s) => s.id === symbolId) ?? chartSymbols[0]
   const code = active.code
   const mode = active.mode
   const simpleConfig = active.simpleConfig
@@ -104,6 +115,27 @@ export default function App() {
   const [bars, setBars] = useState(() =>
     generateMarketData(SYMBOLS[0], '1h', 25_000),
   )
+
+  function applyCoverageToChart(rows: SymbolCoverage[] | null) {
+    const next = chartSymbolsFromCoverage(rows)
+    setChartSymbols(next)
+    setSymbolId((current) =>
+      next.some((s) => s.id === current) ? current : next[0].id,
+    )
+  }
+
+  useEffect(() => {
+    if (!candlesLive || !getCandlesApiKey()) return
+    let cancelled = false
+    void (async () => {
+      const rows = await fetchSymbolCoverage()
+      if (cancelled || rows == null) return
+      applyCoverageToChart(rows)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [candlesLive])
 
   useEffect(() => {
     if (pane === 'builder') return
@@ -312,7 +344,7 @@ export default function App() {
           <label className="field">
             <span>Ativo</span>
             <select value={symbolId} onChange={(e) => setSymbolId(e.target.value)}>
-              {SYMBOLS.map((s) => (
+              {chartSymbols.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
                 </option>
@@ -377,6 +409,7 @@ export default function App() {
       <CandleDownloadPanel
         open={dataPanelOpen}
         onClose={() => setDataPanelOpen(false)}
+        onCoverageChange={applyCoverageToChart}
       />
 
       <main className="workspace workspace-chart">
