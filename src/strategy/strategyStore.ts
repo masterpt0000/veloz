@@ -18,6 +18,7 @@ import {
   type SimpleStrategyConfig,
   type StrategyEditMode,
 } from './simpleStrategy'
+import { ensureTemplateStrategies } from './strategyTemplates'
 
 const STORAGE_KEY = 'veloz.strategies.v1'
 
@@ -118,20 +119,21 @@ export function createSeedLibrary(): StrategyLibrary {
   const simpleConfig = defaultSimpleConfig()
   const rci = makeRciDcaStrategy()
   const builder = makeBuilderStrategy()
+  const strategies = ensureTemplateStrategies([
+    {
+      id,
+      name: 'SMA + RSI (amostra)',
+      code: SAMPLE_STRATEGY_CODE,
+      updatedAt: Date.now(),
+      mode: 'advanced',
+      simpleConfig,
+    },
+    rci,
+    builder,
+  ])
   return {
     activeId: builder.id,
-    strategies: [
-      {
-        id,
-        name: 'SMA + RSI (amostra)',
-        code: SAMPLE_STRATEGY_CODE,
-        updatedAt: Date.now(),
-        mode: 'advanced',
-        simpleConfig,
-      },
-      rci,
-      builder,
-    ],
+    strategies,
   }
 }
 
@@ -176,11 +178,15 @@ export function loadLibrary(): StrategyLibrary {
         strategies,
       }),
     )
+    const withTemplates = {
+      ...withExtras,
+      strategies: ensureTemplateStrategies(withExtras.strategies),
+    }
     const activeId =
-      withExtras.strategies.some((s) => s.id === parsed.activeId)
+      withTemplates.strategies.some((s) => s.id === parsed.activeId)
         ? parsed.activeId
-        : withExtras.strategies[0].id
-    return { activeId, strategies: withExtras.strategies }
+        : withTemplates.strategies[0].id
+    return { activeId, strategies: withTemplates.strategies }
   } catch {
     return createSeedLibrary()
   }
@@ -346,6 +352,17 @@ export function deleteStrategy(
   const activeId =
     library.activeId === id ? strategies[0].id : library.activeId
   return { activeId, strategies }
+}
+
+/** Insert an imported / template strategy and make it active. */
+export function addStrategy(
+  library: StrategyLibrary,
+  strategy: SavedStrategy,
+): StrategyLibrary {
+  return {
+    activeId: strategy.id,
+    strategies: [...library.strategies, strategy],
+  }
 }
 
 /** Code to send to the backtest worker for the active strategy. */

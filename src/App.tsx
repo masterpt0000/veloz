@@ -4,6 +4,7 @@ import { ChartPane } from './components/ChartPane'
 import { IndicatorLegend } from './components/IndicatorLegend'
 import { ResultsPanel } from './components/ResultsPanel'
 import { RciDcaPanel } from './components/RciDcaPanel'
+import { RunHistoryPanel } from './components/RunHistoryPanel'
 import { SimpleStrategyForm } from './components/SimpleStrategyForm'
 import { StrategyBuilderForm } from './components/StrategyBuilderForm'
 import { StrategyEditor } from './components/StrategyEditor'
@@ -30,11 +31,26 @@ import {
   defaultBuilderSpec,
   type VelozBuilderSpec,
 } from './strategy/builderSpec'
+import {
+  appendRun,
+  clearRunHistory,
+  deleteRun,
+  loadRunHistory,
+  savedRunToResult,
+  type RunHistoryStore,
+  type SavedRun,
+} from './strategy/runHistory'
 import type {
   SimpleStrategyConfig,
   StrategyEditMode,
 } from './strategy/simpleStrategy'
 import {
+  copyStrategyJson,
+  downloadStrategyJson,
+  parseStrategyJson,
+} from './strategy/strategyExport'
+import {
+  addStrategy,
   createStrategy,
   deleteStrategy,
   getActive,
@@ -49,6 +65,7 @@ import {
   updateActiveSimpleConfig,
   type StrategyLibrary,
 } from './strategy/strategyStore'
+import { STRATEGY_TEMPLATES } from './strategy/strategyTemplates'
 import type { BacktestResult, Timeframe } from './types'
 import './App.css'
 
@@ -103,6 +120,11 @@ export default function App() {
     Record<string, boolean>
   >({})
   const [dataPanelOpen, setDataPanelOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [runHistory, setRunHistory] = useState<RunHistoryStore>(() =>
+    loadRunHistory(),
+  )
+  const [statusToast, setStatusToast] = useState<string | null>(null)
   const [chartSymbols, setChartSymbols] = useState(SYMBOLS)
   const candlesLive = isCandlesApiConfigured()
 
@@ -111,6 +133,12 @@ export default function App() {
   const mode = active.mode
   const simpleConfig = active.simpleConfig
   const builderSpec = active.builderSpec ?? defaultBuilderSpec(active.name)
+
+  useEffect(() => {
+    if (!statusToast) return
+    const t = window.setTimeout(() => setStatusToast(null), 2800)
+    return () => window.clearTimeout(t)
+  }, [statusToast])
 
   const [bars, setBars] = useState(() =>
     generateMarketData(SYMBOLS[0], '1h', 25_000),
@@ -218,6 +246,52 @@ export default function App() {
     setIndicatorVisibility({})
   }
 
+  function handleExport() {
+    downloadStrategyJson(active)
+    setStatusToast('Estratégia exportada (.json)')
+  }
+
+  async function handleCopyExport() {
+    try {
+      await copyStrategyJson(active)
+      setStatusToast('JSON copiado para a área de transferência')
+    } catch {
+      setStatusToast('Não foi possível copiar — use Exportar JSON')
+    }
+  }
+
+  function handleImportJson(text: string) {
+    try {
+      const imported = parseStrategyJson(text)
+      setLibrary((lib) => addStrategy(lib, imported))
+      setResult(null)
+      setError(null)
+      setIndicatorVisibility({})
+      setStatusToast(`Importada: ${imported.name}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  function handleAddTemplate(templateId: string) {
+    const meta = STRATEGY_TEMPLATES.find((t) => t.id === templateId)
+    if (!meta) return
+    const created = meta.build()
+    setLibrary((lib) => addStrategy(lib, created))
+    setResult(null)
+    setError(null)
+    setIndicatorVisibility({})
+    setStatusToast(`Modelo adicionado: ${created.name}`)
+  }
+
+  function openSavedRun(run: SavedRun) {
+    setResult(savedRunToResult(run))
+    setError(null)
+    setIndicatorVisibility({})
+    setHistoryOpen(false)
+    setStatusToast(`Run reaberto: ${run.meta.strategyName}`)
+  }
+
   function openBuilderTab() {
     const url = new URL(window.location.href)
     url.searchParams.set('pane', 'builder')
@@ -243,12 +317,30 @@ export default function App() {
       const seed: Record<string, boolean> = {}
       for (const ind of next.indicators) seed[ind.id] = ind.visible
       setIndicatorVisibility(seed)
+      setRunHistory((hist) =>
+        appendRun(hist, next, {
+          symbolId: symbol.id,
+          symbolLabel: symbol.label,
+          timeframe,
+          barCount: bars.length,
+          strategyId: active.id,
+          strategyName: active.name,
+          initialCapital: INITIAL_CAPITAL,
+        }),
+      )
     } catch (err) {
       setResult(null)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setRunning(false)
     }
+  }
+
+  const shareHandlers = {
+    onExport: handleExport,
+    onCopyExport: handleCopyExport,
+    onImportJson: handleImportJson,
+    onAddTemplate: handleAddTemplate,
   }
 
   const isBuiltinRci = active.engine === 'rci_dca'
@@ -277,6 +369,11 @@ export default function App() {
             <span className="pill muted">painel builder · sync via localStorage</span>
           </div>
         </header>
+        {statusToast && (
+          <div className="status-toast" role="status">
+            {statusToast}
+          </div>
+        )}
         <main className="builder-workspace">
           <div className="section-label">
             <span>Estratégia</span>
@@ -290,6 +387,7 @@ export default function App() {
               onRename={handleRename}
               onDelete={handleDelete}
               onRun={() => undefined}
+              {...shareHandlers}
             />
           </div>
           {isBuiltinRci ? (
@@ -412,6 +510,21 @@ export default function App() {
         onCoverageChange={applyCoverageToChart}
       />
 
+      <RunHistoryPanel
+        open={historyOpen}
+        runs={runHistory.runs}
+        onClose={() => setHistoryOpen(false)}
+        onOpen={openSavedRun}
+        onDelete={(id) => setRunHistory((h) => deleteRun(h, id))}
+        onClear={() => setRunHistory(clearRunHistory())}
+      />
+
+      {statusToast && (
+        <div className="status-toast" role="status">
+          {statusToast}
+        </div>
+      )}
+
       <main className="workspace workspace-chart">
         <section className="chart-section">
           <div className="section-label">
@@ -428,6 +541,9 @@ export default function App() {
               onDelete={handleDelete}
               onRun={handleRun}
               onOpenBuilder={openBuilderTab}
+              onToggleHistory={() => setHistoryOpen((v) => !v)}
+              historyCount={runHistory.runs.length}
+              {...shareHandlers}
             />
           </div>
           <IndicatorLegend
