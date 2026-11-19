@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react'
 import {
+  computeProgressPct,
   fetchBackfillJob,
   fetchSymbolCoverage,
+  fetchSyncStatus,
   getCandlesApiKey,
   isCandlesApiConfigured,
+  probeCandlesApi,
   setCandlesApiKey,
   startBackfill,
   type BackfillJob,
+  type CandlesApiAlert,
   type SymbolCoverage,
+  type SyncStatus,
 } from '../data/candlesApi'
 
 /** Common Binance spot pairs offered for download (UI presets). */
@@ -59,14 +64,32 @@ function statusLabel(status: string): string {
   }
 }
 
+function alertBannerClass(alert: CandlesApiAlert | null): string {
+  if (!alert || alert.kind === 'ok' || alert.kind === 'unconfigured') return ''
+  if (alert.kind === 'no_key') return 'api-alert warn'
+  return 'api-alert danger'
+}
+
+function alertText(alert: CandlesApiAlert | null): string | null {
+  if (!alert || alert.kind === 'ok' || alert.kind === 'unconfigured') return null
+  return alert.message
+}
+
 interface Props {
   open: boolean
   onClose: () => void
   /** Notify chart ATIVO when BD coverage changes (key save, refresh, backfill done). */
   onCoverageChange?: (rows: SymbolCoverage[]) => void
+  /** Bubble API reachability up to the chart topbar. */
+  onApiAlert?: (alert: CandlesApiAlert) => void
 }
 
-export function CandleDownloadPanel({ open, onClose, onCoverageChange }: Props) {
+export function CandleDownloadPanel({
+  open,
+  onClose,
+  onCoverageChange,
+  onApiAlert,
+}: Props) {
   const configured = isCandlesApiConfigured()
   const [coverage, setCoverage] = useState<SymbolCoverage[]>([])
   const [selected, setSelected] = useState<Set<string>>(
@@ -85,9 +108,32 @@ export function CandleDownloadPanel({ open, onClose, onCoverageChange }: Props) 
   const [message, setMessage] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [apiKeyInput, setApiKeyInput] = useState(() => getCandlesApiKey())
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
+  const [apiAlert, setApiAlert] = useState<CandlesApiAlert | null>(null)
+
+  async function refreshProbe() {
+    const alert = await probeCandlesApi()
+    setApiAlert(alert)
+    onApiAlert?.(alert)
+    return alert
+  }
+
+  async function refreshSyncStatus() {
+    if (!configured || !getCandlesApiKey()) {
+      setSyncStatus(null)
+      return
+    }
+    const status = await fetchSyncStatus('daily')
+    setSyncStatus(status)
+  }
 
   async function refreshCoverage() {
     if (!configured) return
+    const alert = await refreshProbe()
+    if (alert.kind === 'offline' || alert.kind === 'unauthorized') {
+      setLoadError(alert.message)
+      return
+    }
     if (!getCandlesApiKey()) {
       setLoadError('Introduz a chave da API (X-API-Key) para ler a BD.')
       return
@@ -100,6 +146,7 @@ export function CandleDownloadPanel({ open, onClose, onCoverageChange }: Props) 
     setLoadError(null)
     setCoverage(rows)
     onCoverageChange?.(rows)
+    await refreshSyncStatus()
   }
 
   function saveApiKey() {
@@ -181,7 +228,12 @@ export function CandleDownloadPanel({ open, onClose, onCoverageChange }: Props) 
     })
     setBusy(false)
     if (!started) {
-      setMessage('Falha ao iniciar o download. Verifica a API / rede.')
+      const alert = await refreshProbe()
+      if (alert.kind === 'offline' || alert.kind === 'unauthorized') {
+        setMessage(alert.message)
+      } else {
+        setMessage('Falha ao iniciar o download. Verifica a API / rede.')
+      }
       return
     }
     setJob(started)
@@ -189,6 +241,9 @@ export function CandleDownloadPanel({ open, onClose, onCoverageChange }: Props) 
   }
 
   if (!open) return null
+
+  const pct = job ? computeProgressPct(job) : 0
+  const banner = alertText(apiAlert)
 
   return (
     <section className="candle-download" aria-label="Download de candles">
@@ -204,6 +259,12 @@ export function CandleDownloadPanel({ open, onClose, onCoverageChange }: Props) 
           Fechar
         </button>
       </div>
+
+      {banner ? (
+        <p className={alertBannerClass(apiAlert)} role="alert">
+          {banner}
+        </p>
+      ) : null}
 
       {!configured ? (
         <p className="candle-download-warn">
@@ -231,6 +292,45 @@ export function CandleDownloadPanel({ open, onClose, onCoverageChange }: Props) 
               Guardar
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {configured ? (
+        <div className="candle-download-block sync-status-block">
+          <div className="block-head-row">
+            <h3>Sync diário</h3>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => void refreshSyncStatus()}
+            >
+              Atualizar
+            </button>
+          </div>
+          {!syncStatus ? (
+            <p className="hint-inline">
+              Sem dados de sync (API offline, chave em falta, ou endpoint antigo).
+            </p>
+          ) : syncStatus.ok == null ? (
+            <p className="hint-inline">
+              {syncStatus.message ?? 'Ainda sem sync diário registado.'}
+            </p>
+          ) : (
+            <div className={`sync-status-card ${syncStatus.ok ? 'ok' : 'err'}`}>
+              <div className="sync-status-row">
+                <strong>{syncStatus.ok ? 'Último sucesso' : 'Último erro'}</strong>
+                <span>{formatTs(syncStatus.finishedAt)}</span>
+              </div>
+              {syncStatus.error ? (
+                <p className="sync-status-error">{syncStatus.error}</p>
+              ) : null}
+              <p className="hint-inline">
+                Símbolos:{' '}
+                {String(syncStatus.results._symbol_count ?? '—')} · Barras:{' '}
+                {String(syncStatus.results._total_bars ?? '—')}
+              </p>
+            </div>
+          )}
         </div>
       ) : null}
 
@@ -378,8 +478,20 @@ export function CandleDownloadPanel({ open, onClose, onCoverageChange }: Props) 
 
       {job ? (
         <div className="candle-job-status">
-          <strong>Estado do pedido:</strong> {statusLabel(job.status)}
+          <div className="job-progress-head">
+            <strong>Estado do pedido:</strong> {statusLabel(job.status)}
+            <span className="job-progress-pct">{pct.toFixed(0)}%</span>
+          </div>
           {job.error ? <span className="job-error"> — {job.error}</span> : null}
+          <div
+            className="job-progress-bar"
+            role="progressbar"
+            aria-valuenow={pct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div className="job-progress-fill" style={{ width: `${pct}%` }} />
+          </div>
           <ul>
             {job.symbols.map((sym) => {
               const p = job.progress?.[sym]

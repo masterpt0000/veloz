@@ -14,6 +14,8 @@ import {
   fetchSymbolCoverage,
   getCandlesApiKey,
   isCandlesApiConfigured,
+  probeCandlesApi,
+  type CandlesApiAlert,
   type SymbolCoverage,
 } from './data/candlesApi'
 import {
@@ -126,6 +128,7 @@ export default function App() {
   )
   const [statusToast, setStatusToast] = useState<string | null>(null)
   const [chartSymbols, setChartSymbols] = useState(SYMBOLS)
+  const [apiAlert, setApiAlert] = useState<CandlesApiAlert | null>(null)
   const candlesLive = isCandlesApiConfigured()
 
   const symbol = chartSymbols.find((s) => s.id === symbolId) ?? chartSymbols[0]
@@ -153,17 +156,27 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!candlesLive || !getCandlesApiKey()) return
+    if (!candlesLive || pane === 'builder') return
     let cancelled = false
     void (async () => {
+      const alert = await probeCandlesApi()
+      if (cancelled) return
+      setApiAlert(alert)
+      if (alert.kind !== 'ok' || !getCandlesApiKey()) return
       const rows = await fetchSymbolCoverage()
       if (cancelled || rows == null) return
       applyCoverageToChart(rows)
     })()
+    const id = window.setInterval(() => {
+      void probeCandlesApi().then((alert) => {
+        if (!cancelled) setApiAlert(alert)
+      })
+    }, 45_000)
     return () => {
       cancelled = true
+      window.clearInterval(id)
     }
-  }, [candlesLive])
+  }, [candlesLive, pane])
 
   useEffect(() => {
     if (pane === 'builder') return
@@ -497,17 +510,60 @@ export default function App() {
         </div>
 
         <div className="topbar-meta">
-          <span className={`pill ${candlesLive ? '' : 'muted'}`}>
-            {candlesLive ? 'API candles' : 'dados demo'} ·{' '}
-            {deferredBars.length.toLocaleString('pt-PT')} · {dataMs.toFixed(0)} ms
+          <span
+            className={`pill ${
+              !candlesLive || apiAlert?.kind === 'ok'
+                ? candlesLive
+                  ? ''
+                  : 'muted'
+                : apiAlert?.kind === 'no_key'
+                  ? 'warn'
+                  : 'danger'
+            }`}
+            title={
+              apiAlert && 'message' in apiAlert ? apiAlert.message : undefined
+            }
+          >
+            {!candlesLive
+              ? 'dados demo'
+              : apiAlert?.kind === 'ok'
+                ? 'API candles'
+                : apiAlert?.kind === 'offline'
+                  ? 'API offline'
+                  : apiAlert?.kind === 'unauthorized'
+                    ? 'API 401'
+                    : apiAlert?.kind === 'no_key'
+                      ? 'API sem chave'
+                      : apiAlert?.kind === 'error'
+                        ? 'API erro'
+                        : 'API candles'}{' '}
+            · {deferredBars.length.toLocaleString('pt-PT')} · {dataMs.toFixed(0)}{' '}
+            ms
           </span>
         </div>
       </header>
+
+      {apiAlert &&
+        (apiAlert.kind === 'offline' ||
+          apiAlert.kind === 'unauthorized' ||
+          apiAlert.kind === 'error') && (
+          <div className="api-alert-banner danger" role="alert">
+            <strong>Candles API:</strong> {apiAlert.message}
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => setDataPanelOpen(true)}
+            >
+              Abrir Dados BD
+            </button>
+          </div>
+        )}
 
       <CandleDownloadPanel
         open={dataPanelOpen}
         onClose={() => setDataPanelOpen(false)}
         onCoverageChange={applyCoverageToChart}
+        onApiAlert={setApiAlert}
       />
 
       <RunHistoryPanel
