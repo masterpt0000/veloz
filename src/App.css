@@ -586,6 +586,14 @@ input {
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
 }
 
+.layout-preset-field {
+  min-width: 140px;
+}
+
+.layout-preset-field select {
+  max-width: 168px;
+}
+
 .btn.danger {
   color: #9a3412;
 }
