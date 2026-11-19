@@ -39,11 +39,32 @@ export interface BackfillJob {
   from: string | null
   to: string | null
   progress: Record<string, BackfillSymbolProgress>
+  /** 0–100 from API (per-symbol status). */
+  progressPct?: number
   error: string | null
   createdAt: string | null
   startedAt: string | null
   finishedAt: string | null
 }
+
+export interface SyncStatus {
+  kind: string
+  ok: boolean | null
+  startedAt: string | null
+  finishedAt: string | null
+  results: Record<string, number | string>
+  error: string | null
+  message: string | null
+}
+
+/** Reachability / auth of the LAN candles API. */
+export type CandlesApiAlert =
+  | { kind: 'ok' }
+  | { kind: 'unconfigured' }
+  | { kind: 'no_key'; message: string }
+  | { kind: 'offline'; message: string }
+  | { kind: 'unauthorized'; message: string }
+  | { kind: 'error'; message: string }
 
 /** LAN candles API on m4st3r — only reachable from Tiago's home network. */
 const DEFAULT_CANDLES_API_URL = 'http://192.168.1.216:8080'
@@ -84,6 +105,67 @@ function apiHeaders(json = false): HeadersInit {
 /** True when Veloz should prefer the candles HTTP API over demo generators. */
 export function isCandlesApiConfigured(): boolean {
   return Boolean(API_URL)
+}
+
+export function getCandlesApiUrl(): string {
+  return API_URL
+}
+
+/**
+ * Probe LAN API: /health (no key) for reachability, then /symbols for auth.
+ */
+export async function probeCandlesApi(): Promise<CandlesApiAlert> {
+  if (!API_URL) return { kind: 'unconfigured' }
+
+  try {
+    const health = await fetch(`${API_URL}/health`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(6_000),
+    })
+    if (!health.ok) {
+      return {
+        kind: 'error',
+        message: `API health HTTP ${health.status}`,
+      }
+    }
+  } catch {
+    return {
+      kind: 'offline',
+      message: 'API de candles inacessível (rede / host offline).',
+    }
+  }
+
+  if (!getCandlesApiKey()) {
+    return {
+      kind: 'no_key',
+      message: 'Introduz a chave da API em Dados BD.',
+    }
+  }
+
+  try {
+    const res = await fetch(`${API_URL}/symbols`, {
+      headers: apiHeaders(),
+      signal: AbortSignal.timeout(8_000),
+    })
+    if (res.status === 401) {
+      return {
+        kind: 'unauthorized',
+        message: 'Chave da API inválida ou em falta (401).',
+      }
+    }
+    if (!res.ok) {
+      return {
+        kind: 'error',
+        message: `API symbols HTTP ${res.status}`,
+      }
+    }
+    return { kind: 'ok' }
+  } catch {
+    return {
+      kind: 'offline',
+      message: 'API de candles inacessível ao ler /symbols.',
+    }
+  }
 }
 
 /**
@@ -134,6 +216,26 @@ export async function fetchSymbolCoverage(): Promise<SymbolCoverage[] | null> {
   }
 }
 
+export async function fetchSyncStatus(
+  kind = 'daily',
+): Promise<SyncStatus | null> {
+  if (!API_URL) return null
+  try {
+    const qs = new URLSearchParams({ kind })
+    const res = await fetch(`${API_URL}/sync-status?${qs}`, {
+      headers: apiHeaders(),
+    })
+    if (!res.ok) {
+      console.warn('[candlesApi] /sync-status', res.status, await res.text())
+      return null
+    }
+    return (await res.json()) as SyncStatus
+  } catch (err) {
+    console.warn('[candlesApi] /sync-status failed', err)
+    return null
+  }
+}
+
 export async function startBackfill(params: {
   symbols: string[]
   from?: string
@@ -153,7 +255,7 @@ export async function startBackfill(params: {
       console.warn('[candlesApi] /backfill', res.status, await res.text())
       return null
     }
-    return (await res.json()) as BackfillJob
+    return normalizeJob((await res.json()) as BackfillJob)
   } catch (err) {
     console.warn('[candlesApi] /backfill failed', err)
     return null
@@ -170,9 +272,29 @@ export async function fetchBackfillJob(jobId: string): Promise<BackfillJob | nul
       console.warn('[candlesApi] /backfill/:id', res.status, await res.text())
       return null
     }
-    return (await res.json()) as BackfillJob
+    return normalizeJob((await res.json()) as BackfillJob)
   } catch (err) {
     console.warn('[candlesApi] /backfill/:id failed', err)
     return null
   }
+}
+
+/** Client-side fallback if older API omits progressPct. */
+export function computeProgressPct(job: BackfillJob): number {
+  if (typeof job.progressPct === 'number' && Number.isFinite(job.progressPct)) {
+    return Math.max(0, Math.min(100, job.progressPct))
+  }
+  if (job.status === 'done') return 100
+  if (job.status === 'queued' || !job.symbols.length) return 0
+  let score = 0
+  for (const sym of job.symbols) {
+    const st = job.progress?.[sym]?.status ?? 'queued'
+    if (st === 'done' || st === 'error') score += 1
+    else if (st === 'running') score += 0.5
+  }
+  return Math.round((100 * score) / job.symbols.length * 10) / 10
+}
+
+function normalizeJob(job: BackfillJob): BackfillJob {
+  return { ...job, progressPct: computeProgressPct(job) }
 }

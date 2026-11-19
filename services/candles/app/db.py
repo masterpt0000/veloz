@@ -270,6 +270,64 @@ def list_recent_backfill_jobs(limit: int = 20) -> list[dict[str, Any]]:
     return out
 
 
+def insert_sync_run(
+    *,
+    kind: str,
+    ok: bool,
+    results: dict[str, Any],
+    error: str | None = None,
+    started_at: datetime | None = None,
+) -> dict[str, Any]:
+    started = started_at or datetime.now(timezone.utc)
+    sql = """
+        INSERT INTO sync_runs (kind, ok, started_at, finished_at, results, error)
+        VALUES (%s, %s, %s, now(), %s, %s)
+        RETURNING id, kind, ok, started_at, finished_at, results, error
+    """
+    with connection() as conn:
+        row = conn.execute(
+            sql,
+            (kind, ok, started, Jsonb(results), error),
+        ).fetchone()
+        conn.commit()
+    assert row is not None
+    return _sync_run_row(row)
+
+
+def get_latest_sync_run(kind: str = "daily") -> dict[str, Any] | None:
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, kind, ok, started_at, finished_at, results, error
+            FROM sync_runs
+            WHERE kind = %s
+            ORDER BY finished_at DESC
+            LIMIT 1
+            """,
+            (kind,),
+        ).fetchone()
+    if not row:
+        return None
+    return _sync_run_row(row)
+
+
+def _sync_run_row(row: dict[str, Any]) -> dict[str, Any]:
+    started = _as_utc(row["started_at"])
+    finished = _as_utc(row["finished_at"])
+    results = row["results"] or {}
+    if not isinstance(results, dict):
+        results = dict(results)
+    return {
+        "id": int(row["id"]),
+        "kind": row["kind"],
+        "ok": bool(row["ok"]),
+        "startedAt": started.isoformat() if started else None,
+        "finishedAt": finished.isoformat() if finished else None,
+        "results": results,
+        "error": row["error"],
+    }
+
+
 def query_candles(
     *,
     symbol: str,

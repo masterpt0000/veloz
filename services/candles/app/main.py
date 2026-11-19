@@ -18,6 +18,7 @@ from .db import (
     TIMEFRAME_INTERVALS,
     close_pool,
     ensure_schema,
+    get_latest_sync_run,
     list_symbol_coverage,
     query_candles,
     wait_for_db,
@@ -95,6 +96,8 @@ class BackfillJobResponse(BaseModel):
     from_: str | None = Field(default=None, alias="from")
     to: str | None = None
     progress: dict[str, SymbolProgress]
+    # 0–100 approximate completion from per-symbol statuses
+    progressPct: float = 0
     error: str | None = None
     createdAt: str | None = None
     startedAt: str | None = None
@@ -106,8 +109,35 @@ class DailySyncResponse(BaseModel):
     results: dict[str, int | str]
 
 
+class SyncStatusResponse(BaseModel):
+    kind: str
+    ok: bool | None = None
+    startedAt: str | None = None
+    finishedAt: str | None = None
+    results: dict[str, int | str] = Field(default_factory=dict)
+    error: str | None = None
+    message: str | None = None
+
+
 _stop_ingest: asyncio.Event | None = None
 _ingest_task: asyncio.Task[None] | None = None
+
+
+def _progress_pct(status: str, symbols: list[str], progress: dict[str, SymbolProgress]) -> float:
+    if status == "done":
+        return 100.0
+    if status == "queued" or not symbols:
+        return 0.0
+    total = len(symbols)
+    score = 0.0
+    for sym in symbols:
+        info = progress.get(sym)
+        st = info.status if info else "queued"
+        if st in ("done", "error"):
+            score += 1.0
+        elif st == "running":
+            score += 0.5
+    return round(100.0 * score / total, 1)
 
 
 def _job_to_response(job: dict) -> BackfillJobResponse:
@@ -122,14 +152,16 @@ def _job_to_response(job: dict) -> BackfillJobResponse:
             )
         else:
             progress[sym] = SymbolProgress(status="unknown")
+    symbols = list(job.get("symbols") or [])
     return BackfillJobResponse.model_validate(
         {
             "id": job["id"],
             "status": job["status"],
-            "symbols": job["symbols"],
+            "symbols": symbols,
             "from": job.get("from"),
             "to": job.get("to"),
             "progress": progress,
+            "progressPct": _progress_pct(str(job.get("status") or ""), symbols, progress),
             "error": job.get("error"),
             "createdAt": job.get("createdAt"),
             "startedAt": job.get("startedAt"),
@@ -315,6 +347,31 @@ async def post_daily_sync(
         isinstance(v, str) and v.startswith("error:") for v in results.values()
     )
     return DailySyncResponse(ok=not failed, results=results)
+
+
+@app.get("/sync-status", response_model=SyncStatusResponse)
+@app.get("/v1/sync-status", response_model=SyncStatusResponse)
+def get_sync_status(
+    _: Annotated[None, Depends(require_api_key)],
+    kind: Annotated[str, Query(min_length=1, max_length=32)] = "daily",
+) -> SyncStatusResponse:
+    """Last daily-sync (cron or POST /daily-sync) success/error for Dados BD UI."""
+    row = get_latest_sync_run(kind=kind)
+    if row is None:
+        return SyncStatusResponse(
+            kind=kind,
+            ok=None,
+            message="Ainda sem sync diário registado na BD.",
+        )
+    return SyncStatusResponse(
+        kind=row["kind"],
+        ok=row["ok"],
+        startedAt=row["startedAt"],
+        finishedAt=row["finishedAt"],
+        results=row["results"],
+        error=row["error"],
+        message=None,
+    )
 
 
 def main() -> None:

@@ -94,9 +94,10 @@ GET  /v1/candles          # same (chart path — keep this fast)
 GET  /health              # open (no API key)
 GET  /symbols             # symbols in DB + min/max ts + bar count
 POST /backfill            # { "symbols": ["BTCUSDT"], "from": "ISO", "to": "ISO" }
-GET  /backfill/{job_id}   # poll queued|running|done|error
+GET  /backfill/{job_id}   # poll queued|running|done|error (+ progressPct)
 GET  /backfill            # recent jobs
 POST /daily-sync          # fill yesterday (UTC) for every symbol already in DB
+GET  /sync-status?kind=daily  # last cron/API daily-sync success|error (Dados BD)
 ```
 
 All routes except `/health` require header `X-API-Key: <CANDLES_API_KEY>`.
@@ -104,6 +105,8 @@ All routes except `/health` require header `X-API-Key: <CANDLES_API_KEY>`.
 - `timeframe`: `1m` \| `5m` \| `15m` \| `1h` \| `4h` \| `1D`
 - `from` / `to` on `/candles`: unix seconds (inclusive / exclusive)
 - Backfill body `from` / `to`: ISO-8601 timestamps (UTC). Omit `to` = until now; omit `from` = last `INGEST_BACKFILL_DAYS`. Max symbols / day span: `MAX_BACKFILL_*`.
+- Backfill job responses include `progressPct` (0–100 from per-symbol status) for UI polling.
+- `GET /sync-status` returns the latest row written by `python -m app.daily_sync` or `POST /daily-sync`.
 - `before`: page older bars (strictly before `ts`)
 - `limit`: default `5000`, max `50000`
 - Response bars match Veloz `Bar`: `{ time, open, high, low, close, volume }` (`time` = UTC seconds)

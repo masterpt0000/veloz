@@ -19,7 +19,15 @@ import sys
 
 import httpx
 
-from .db import close_pool, ensure_schema, list_db_symbols, wait_for_db
+from datetime import datetime, timezone
+
+from .db import (
+    close_pool,
+    ensure_schema,
+    insert_sync_run,
+    list_db_symbols,
+    wait_for_db,
+)
 from .ingest import daily_sync_symbol
 
 logging.basicConfig(
@@ -29,13 +37,22 @@ logging.basicConfig(
 log = logging.getLogger("candles.daily_sync")
 
 
-async def run_daily_sync() -> dict[str, int | str]:
+async def run_daily_sync(*, record: bool = True) -> dict[str, int | str]:
     wait_for_db()
     ensure_schema()
+    started = datetime.now(timezone.utc)
     symbols = list_db_symbols()
     if not symbols:
         log.warning("no symbols in DB — nothing to sync")
-        return {"symbols": 0, "bars": 0}
+        summary: dict[str, int | str] = {"symbols": 0, "bars": 0}
+        if record:
+            insert_sync_run(
+                kind="daily",
+                ok=True,
+                results=summary,
+                started_at=started,
+            )
+        return summary
 
     results: dict[str, int | str] = {}
     total = 0
@@ -52,6 +69,20 @@ async def run_daily_sync() -> dict[str, int | str]:
 
     results["_total_bars"] = total
     results["_symbol_count"] = len(symbols)
+
+    failed = [
+        k
+        for k, v in results.items()
+        if isinstance(v, str) and v.startswith("error:")
+    ]
+    if record:
+        insert_sync_run(
+            kind="daily",
+            ok=not failed,
+            results=results,
+            error=("failed: " + ", ".join(failed)) if failed else None,
+            started_at=started,
+        )
     return results
 
 
