@@ -26,6 +26,8 @@ function makeBuilder(name: string, spec: VelozBuilderSpec): SavedStrategy {
     simpleConfig: defaultSimpleConfig(),
     engine: 'builder',
     builderSpec: { ...spec, name },
+    tags: ['modelo', 'builder'],
+    favorite: false,
   }
 }
 

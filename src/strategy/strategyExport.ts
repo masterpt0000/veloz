@@ -19,7 +19,7 @@ import {
   type StrategyEditMode,
 } from './simpleStrategy'
 import type { BuiltinEngine } from '../types'
-import type { SavedStrategy } from './strategyStore'
+import { normalizeTags, type SavedStrategy } from './strategyStore'
 
 export const STRATEGY_EXPORT_VERSION = 1 as const
 export const STRATEGY_EXPORT_KIND = 'veloz.strategy' as const
@@ -36,6 +36,8 @@ export interface StrategyExportPayload {
     engine?: BuiltinEngine
     rciDcaParams?: Partial<RciDcaParams>
     builderSpec?: VelozBuilderSpec
+    tags?: string[]
+    favorite?: boolean
   }
 }
 
@@ -57,6 +59,8 @@ export function toExportPayload(strategy: SavedStrategy): StrategyExportPayload 
       engine: strategy.engine,
       rciDcaParams: strategy.rciDcaParams,
       builderSpec: strategy.builderSpec,
+      tags: strategy.tags,
+      favorite: strategy.favorite,
     },
   }
 }
@@ -98,6 +102,8 @@ export function parseStrategyImport(raw: unknown): SavedStrategy {
       simpleConfig: defaultSimpleConfig(),
       engine: 'builder',
       builderSpec: spec,
+      tags: [],
+      favorite: false,
     }
   }
 
@@ -142,6 +148,8 @@ function hydrateImported(s: Record<string, unknown>): SavedStrategy {
     engine,
     rciDcaParams,
     builderSpec,
+    tags: normalizeTags(s.tags),
+    favorite: s.favorite === true,
   }
 }
 

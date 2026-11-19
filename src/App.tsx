@@ -16,6 +16,7 @@ import { SimpleStrategyForm } from './components/SimpleStrategyForm'
 import { StrategyBuilderForm } from './components/StrategyBuilderForm'
 import { StrategyEditor } from './components/StrategyEditor'
 import { StrategyModeTabs } from './components/StrategyModeTabs'
+import { StrategyParamsEditor } from './components/StrategyParamsEditor'
 import { StrategyToolbar } from './components/StrategyToolbar'
 import {
   fetchSymbolCoverage,
@@ -58,19 +59,24 @@ import {
   downloadStrategyJson,
   parseStrategyJson,
 } from './strategy/strategyExport'
+import type { RciDcaParams } from './strategy/rciDcaEngine'
 import {
   addStrategy,
   createStrategy,
   deleteStrategy,
+  duplicateStrategy,
   getActive,
   loadLibrary,
   renameStrategy,
   resolveRunCode,
   saveLibrary,
   selectStrategy,
+  setStrategyFavorite,
+  setStrategyTags,
   updateActiveBuilderSpec,
   updateActiveCode,
   updateActiveMode,
+  updateActiveRciDcaParams,
   updateActiveSimpleConfig,
   type StrategyLibrary,
 } from './strategy/strategyStore'
@@ -146,6 +152,7 @@ export default function App() {
   const [layoutPresetId, setLayoutPresetId] = useState<LayoutPresetId>(() =>
     loadLayoutPresetId(),
   )
+  const [chartParamsOpen, setChartParamsOpen] = useState(false)
   const candlesLive = isCandlesApiConfigured()
   const layoutPreset = getPreset(layoutPresetId)
 
@@ -243,6 +250,34 @@ export default function App() {
 
   function handleBuilderSpecChange(next: VelozBuilderSpec) {
     setLibrary((lib) => updateActiveBuilderSpec(lib, next))
+  }
+
+  function handleRciParamsChange(next: Partial<RciDcaParams>) {
+    setLibrary((lib) => updateActiveRciDcaParams(lib, next))
+  }
+
+  function handleDuplicate() {
+    const current = getActive(library)
+    const name = window.prompt(
+      'Nome da cópia:',
+      `Cópia de ${current.name}`,
+    )
+    if (name == null) return
+    setLibrary((lib) => duplicateStrategy(lib, current.id, name))
+    setResult(null)
+    setError(null)
+    setIndicatorVisibility({})
+    setStatusToast(`Duplicada: ${name.trim() || `Cópia de ${current.name}`}`)
+  }
+
+  function handleToggleFavorite(id: string) {
+    const target = library.strategies.find((s) => s.id === id)
+    if (!target) return
+    setLibrary((lib) => setStrategyFavorite(lib, id, !target.favorite))
+  }
+
+  function handleTagsChange(id: string, tags: string[]) {
+    setLibrary((lib) => setStrategyTags(lib, id, tags))
   }
 
   function handleSelect(id: string) {
@@ -395,6 +430,12 @@ export default function App() {
     onAddTemplate: handleAddTemplate,
   }
 
+  const libraryHandlers = {
+    onDuplicate: handleDuplicate,
+    onToggleFavorite: handleToggleFavorite,
+    onTagsChange: handleTagsChange,
+  }
+
   const isBuiltinRci = active.engine === 'rci_dca'
   const isBuilder = active.engine === 'builder'
 
@@ -440,10 +481,14 @@ export default function App() {
               onDelete={handleDelete}
               onRun={() => undefined}
               {...shareHandlers}
+              {...libraryHandlers}
             />
           </div>
           {isBuiltinRci ? (
-            <RciDcaPanel params={active.rciDcaParams} />
+            <RciDcaPanel
+              params={active.rciDcaParams}
+              onChange={handleRciParamsChange}
+            />
           ) : isBuilder || !active.engine ? (
             <StrategyBuilderForm
               key={library.activeId}
@@ -647,8 +692,37 @@ export default function App() {
               onToggleHistory={() => setHistoryOpen((v) => !v)}
               historyCount={runHistory.runs.length}
               {...shareHandlers}
+              {...libraryHandlers}
             />
           </div>
+          {(isBuilder || isBuiltinRci) && (
+            <div className="chart-params-bar">
+              <button
+                type="button"
+                className="btn ghost"
+                aria-expanded={chartParamsOpen}
+                onClick={() => setChartParamsOpen((v) => !v)}
+              >
+                {chartParamsOpen ? 'Ocultar parâmetros' : 'Parâmetros'}
+              </button>
+              {chartParamsOpen && (
+                <div className="chart-params-panel">
+                  {isBuiltinRci ? (
+                    <RciDcaPanel
+                      params={active.rciDcaParams}
+                      onChange={handleRciParamsChange}
+                    />
+                  ) : (
+                    <StrategyParamsEditor
+                      compact
+                      spec={builderSpec}
+                      onChange={handleBuilderSpecChange}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <IndicatorLegend
             indicators={deferredIndicators}
             visibility={indicatorVisibility}
