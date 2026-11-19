@@ -10,6 +10,9 @@ import BacktestWorker from './backtestWorker?worker'
 let worker: Worker | null = null
 let nextId = 1
 
+/** Hard cap so a hung worker cannot leave the UI stuck on 「A executar…」. */
+const BACKTEST_TIMEOUT_MS = 60_000
+
 function getWorker(): Worker {
   if (!worker) {
     worker = new BacktestWorker()
@@ -32,18 +35,43 @@ export function runBacktest(
   const w = getWorker()
 
   return new Promise((resolve, reject) => {
+    let settled = false
+
+    const cleanup = () => {
+      w.removeEventListener('message', onMessage)
+      w.removeEventListener('error', onError)
+      window.clearTimeout(timer)
+    }
+
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      fn()
+    }
+
     const onMessage = (event: MessageEvent<BacktestResponse>) => {
       if (event.data.id !== id) return
-      w.removeEventListener('message', onMessage)
-      w.removeEventListener('error', onError)
-      if (event.data.ok) resolve(event.data.result)
-      else reject(new Error(event.data.error))
+      settle(() => {
+        if (event.data.ok) resolve(event.data.result)
+        else reject(new Error(event.data.error))
+      })
     }
     const onError = (event: ErrorEvent) => {
-      w.removeEventListener('message', onMessage)
-      w.removeEventListener('error', onError)
-      reject(event.error ?? new Error(event.message || 'Worker falhou'))
+      settle(() => {
+        reject(event.error ?? new Error(event.message || 'Worker falhou'))
+      })
     }
+
+    const timer = window.setTimeout(() => {
+      settle(() => {
+        reject(
+          new Error(
+            `Backtest excedeu o tempo limite (${BACKTEST_TIMEOUT_MS / 1000}s)`,
+          ),
+        )
+      })
+    }, BACKTEST_TIMEOUT_MS)
 
     w.addEventListener('message', onMessage)
     w.addEventListener('error', onError)

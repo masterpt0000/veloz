@@ -3,6 +3,7 @@ import {
   useDeferredValue,
   useEffect,
   useEffectEvent,
+  useRef,
   useState,
 } from 'react'
 import { CandleDownloadPanel } from './components/CandleDownloadPanel'
@@ -174,8 +175,10 @@ function shouldShowApiBanner(
   )
 }
 
-function useStrategyLibrary() {
+function useStrategyLibrary(onExternalSync?: () => void) {
   const [library, setLibrary] = useState<StrategyLibrary>(() => loadLibrary())
+  const externalSyncRef = useRef(onExternalSync)
+  externalSyncRef.current = onExternalSync
 
   useEffect(() => {
     saveLibrary(library)
@@ -187,6 +190,7 @@ function useStrategyLibrary() {
       if (e.key !== 'veloz.strategies.v1' || !e.newValue) return
       try {
         setLibrary(loadLibrary())
+        externalSyncRef.current?.()
       } catch {
         /* ignore */
       }
@@ -205,14 +209,32 @@ export default function App() {
   const [timeframe, setTimeframe] = useState<Timeframe>('1h')
   const [barCount, setBarCount] = useState<number>(25_000)
   const [showVolume, setShowVolume] = useState(true)
-  const { library, setLibrary, active } = useStrategyLibrary()
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
-  const [dataMs, setDataMs] = useState(0)
   const [indicatorVisibility, setIndicatorVisibility] = useState<
     Record<string, boolean>
   >({})
+  const runningRef = useRef(false)
+  const runGenRef = useRef(0)
+
+  function clearChartRun() {
+    setResult(null)
+    setError(null)
+    setIndicatorVisibility({})
+  }
+
+  function invalidateInFlightRun() {
+    runGenRef.current += 1
+    runningRef.current = false
+    setRunning(false)
+  }
+
+  const { library, setLibrary, active } = useStrategyLibrary(() => {
+    invalidateInFlightRun()
+    clearChartRun()
+  })
+  const [dataMs, setDataMs] = useState(0)
   const [dataPanelOpen, setDataPanelOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [runHistory, setRunHistory] = useState<RunHistoryStore>(() =>
@@ -307,13 +329,12 @@ export default function App() {
       if (cancelled) return
       const usedDemo = live == null && candlesLive
       const next = live ?? generateMarketData(symbol, timeframe, barCount)
+      invalidateInFlightRun()
       startTransition(() => {
         setBars(next)
         setDemoFallback(usedDemo)
         setDataMs(performance.now() - t0)
-        setResult(null)
-        setError(null)
-        setIndicatorVisibility({})
+        clearChartRun()
       })
     }
 
@@ -372,10 +393,9 @@ export default function App() {
   }
 
   function handleSelect(id: string) {
+    invalidateInFlightRun()
     setLibrary((lib) => selectStrategy(lib, id))
-    setResult(null)
-    setError(null)
-    setIndicatorVisibility({})
+    clearChartRun()
   }
 
   function handleCreate() {
@@ -461,7 +481,11 @@ export default function App() {
   }
 
   async function handleRun() {
+    if (runningRef.current) return
+    runningRef.current = true
+    const gen = ++runGenRef.current
     setRunning(true)
+    setResult(null)
     setError(null)
     try {
       const runCode = resolveRunCode(active)
@@ -475,6 +499,7 @@ export default function App() {
         builtin: active.engine,
         builtinParams: builtinParams as Record<string, unknown> | undefined,
       })
+      if (gen !== runGenRef.current) return
       setResult(next)
       const seed: Record<string, boolean> = {}
       for (const ind of next.indicators) seed[ind.id] = ind.visible
@@ -491,10 +516,14 @@ export default function App() {
         }),
       )
     } catch (err) {
+      if (gen !== runGenRef.current) return
       setResult(null)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setRunning(false)
+      if (gen === runGenRef.current) {
+        runningRef.current = false
+        setRunning(false)
+      }
     }
   }
 
@@ -650,17 +679,11 @@ export default function App() {
               params={active.rciDcaParams}
               onChange={handleRciParamsChange}
             />
-          ) : isBuilder || !active.engine ? (
+          ) : isBuilder ? (
             <StrategyBuilderForm
               key={library.activeId}
-              spec={
-                isBuilder || active.builderSpec
-                  ? builderSpec
-                  : defaultBuilderSpec(active.name)
-              }
-              onChange={(next) => {
-                handleBuilderSpecChange(next)
-              }}
+              spec={builderSpec}
+              onChange={handleBuilderSpecChange}
             />
           ) : mode === 'simple' ? (
             <SimpleStrategyForm

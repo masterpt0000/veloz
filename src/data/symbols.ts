@@ -63,10 +63,11 @@ export const TIMEFRAMES: { id: Timeframe; label: string; seconds: number }[] = [
   { id: '1D', label: '1D', seconds: 86400 },
 ]
 
+/** Max matches candles API single-page limit (no client pagination yet). */
 export const BAR_COUNTS = [
   { id: 5_000, label: '5k' },
   { id: 25_000, label: '25k' },
-  { id: 100_000, label: '100k' },
+  { id: 50_000, label: '50k' },
 ] as const
 
 export function getTimeframeSeconds(tf: Timeframe): number {
