@@ -109,6 +109,71 @@ function readPane(): 'chart' | 'builder' {
   }
 }
 
+function statusPillClass(
+  alert: CandlesApiAlert | null,
+  candlesLive: boolean,
+  demoFallback: boolean,
+): string {
+  if (!candlesLive) return 'muted'
+  if (demoFallback) return 'warn'
+  if (!alert) return 'muted'
+  if (alert.kind === 'ok') return ''
+  if (alert.kind === 'no_key') return 'warn'
+  if (alert.kind === 'unconfigured') return 'muted'
+  return 'danger'
+}
+
+function statusPillLabel(
+  alert: CandlesApiAlert | null,
+  candlesLive: boolean,
+  demoFallback: boolean,
+): string {
+  if (!candlesLive) return 'dados demo'
+  if (demoFallback) return 'demo (API sem dados)'
+  if (!alert) return 'A ligar…'
+  switch (alert.kind) {
+    case 'ok':
+      return 'API candles'
+    case 'offline':
+      return 'API offline'
+    case 'unauthorized':
+      return 'API 401'
+    case 'no_key':
+      return 'API sem chave'
+    case 'error':
+      return 'API erro'
+    case 'unconfigured':
+      return 'dados demo'
+    default:
+      return 'API candles'
+  }
+}
+
+function statusPillTitle(
+  alert: CandlesApiAlert | null,
+  demoFallback: boolean,
+): string | undefined {
+  if (demoFallback) {
+    return 'A API respondeu sem barras — a usar série demo local.'
+  }
+  if (alert && 'message' in alert) return alert.message
+  return undefined
+}
+
+function shouldShowApiBanner(
+  alert: CandlesApiAlert | null,
+  demoFallback: boolean,
+): boolean {
+  if (demoFallback) return true
+  if (!alert) return false
+  return (
+    alert.kind === 'offline' ||
+    alert.kind === 'unauthorized' ||
+    alert.kind === 'error' ||
+    alert.kind === 'no_key'
+  )
+}
+
 function useStrategyLibrary() {
   const [library, setLibrary] = useState<StrategyLibrary>(() => loadLibrary())
 
@@ -156,6 +221,8 @@ export default function App() {
   const [statusToast, setStatusToast] = useState<string | null>(null)
   const [chartSymbols, setChartSymbols] = useState(SYMBOLS)
   const [apiAlert, setApiAlert] = useState<CandlesApiAlert | null>(null)
+  /** True when API is configured but the last bar load fell back to demo series. */
+  const [demoFallback, setDemoFallback] = useState(false)
   const [layoutPresetId, setLayoutPresetId] = useState<LayoutPresetId>(() =>
     loadLayoutPresetId(),
   )
@@ -238,9 +305,11 @@ export default function App() {
     async function loadBars() {
       const live = await fetchMarketData(symbol.id, timeframe, barCount)
       if (cancelled) return
+      const usedDemo = live == null && candlesLive
       const next = live ?? generateMarketData(symbol, timeframe, barCount)
       startTransition(() => {
         setBars(next)
+        setDemoFallback(usedDemo)
         setDataMs(performance.now() - t0)
         setResult(null)
         setError(null)
@@ -252,7 +321,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [symbol, timeframe, barCount, pane])
+  }, [symbol, timeframe, barCount, pane, candlesLive])
 
   const deferredBars = useDeferredValue(bars)
   const deferredSignals = useDeferredValue(result?.signals ?? [])
@@ -630,7 +699,11 @@ export default function App() {
         <div className="controls">
           <label className="field">
             <span>Ativo</span>
-            <select value={symbolId} onChange={(e) => setSymbolId(e.target.value)}>
+            <select
+              value={symbolId}
+              onChange={(e) => setSymbolId(e.target.value)}
+              aria-label="Ativo"
+            >
               {chartSymbols.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
@@ -644,6 +717,7 @@ export default function App() {
             <select
               value={timeframe}
               onChange={(e) => setTimeframe(e.target.value as Timeframe)}
+              aria-label="Tempo"
             >
               {TIMEFRAMES.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -658,6 +732,7 @@ export default function App() {
             <select
               value={barCount}
               onChange={(e) => setBarCount(Number(e.target.value))}
+              aria-label="Barras"
             >
               {BAR_COUNTS.map((b) => (
                 <option key={b.id} value={b.id}>
@@ -672,6 +747,7 @@ export default function App() {
               type="checkbox"
               checked={showVolume}
               onChange={(e) => setShowVolume(e.target.checked)}
+              aria-label="Mostrar volume"
             />
             <span>Volume</span>
           </label>
@@ -694,53 +770,38 @@ export default function App() {
 
         <div className="topbar-meta">
           <span
-            className={`pill ${
-              !candlesLive || apiAlert?.kind === 'ok'
-                ? candlesLive
-                  ? ''
-                  : 'muted'
-                : apiAlert?.kind === 'no_key'
-                  ? 'warn'
-                  : 'danger'
-            }`}
-            title={
-              apiAlert && 'message' in apiAlert ? apiAlert.message : undefined
-            }
+            className={`pill ${statusPillClass(apiAlert, candlesLive, demoFallback)}`}
+            title={statusPillTitle(apiAlert, demoFallback)}
           >
-            {!candlesLive
-              ? 'dados demo'
-              : apiAlert?.kind === 'ok'
-                ? 'API candles'
-                : apiAlert?.kind === 'offline'
-                  ? 'API offline'
-                  : apiAlert?.kind === 'unauthorized'
-                    ? 'API 401'
-                    : apiAlert?.kind === 'no_key'
-                      ? 'API sem chave'
-                      : apiAlert?.kind === 'error'
-                        ? 'API erro'
-                        : 'API candles'}{' '}
-            · {deferredBars.length.toLocaleString('pt-PT')} · {dataMs.toFixed(0)}{' '}
+            {statusPillLabel(apiAlert, candlesLive, demoFallback)} ·{' '}
+            {deferredBars.length.toLocaleString('pt-PT')} · {dataMs.toFixed(0)}{' '}
             ms
           </span>
         </div>
       </header>
 
-      {apiAlert &&
-        (apiAlert.kind === 'offline' ||
-          apiAlert.kind === 'unauthorized' ||
-          apiAlert.kind === 'error') && (
-          <div className="api-alert-banner danger" role="alert">
-            <strong>Candles API:</strong> {apiAlert.message}
-            <button
-              type="button"
-              className="btn ghost"
-              onClick={() => setDataPanelOpen(true)}
-            >
-              Abrir Dados BD
-            </button>
-          </div>
-        )}
+      {shouldShowApiBanner(apiAlert, demoFallback) && (
+        <div
+          className={`api-alert-banner ${
+            apiAlert?.kind === 'no_key' || demoFallback ? 'warn' : 'danger'
+          }`}
+          role="alert"
+        >
+          <strong>Candles API:</strong>{' '}
+          {demoFallback && (!apiAlert || apiAlert.kind === 'ok')
+            ? 'Sem candles na BD para este ativo/tempo — a mostrar série demo.'
+            : apiAlert && 'message' in apiAlert
+              ? apiAlert.message
+              : 'Problema na API de candles.'}
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => setDataPanelOpen(true)}
+          >
+            Abrir Dados BD
+          </button>
+        </div>
+      )}
 
       <CandleDownloadPanel
         open={dataPanelOpen}

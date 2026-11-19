@@ -14,7 +14,8 @@ export function IndicatorLegend({
   if (!indicators.length) {
     return (
       <p className="indicator-empty muted">
-        Sem indicadores — devolva <code>indicators</code> na estratégia.
+        Sem indicadores ainda — clique em <strong>Executar backtest</strong> para
+        os ver no gráfico.
       </p>
     )
   }

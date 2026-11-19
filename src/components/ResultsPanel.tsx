@@ -41,7 +41,11 @@ export function ResultsPanel({
           value={m ? formatPct(m.totalReturnPct) : '—'}
           tone={m ? (m.totalReturnPct >= 0 ? 'pos' : 'neg') : undefined}
         />
-        <Metric label="Drawdown" value={m ? formatPct(-m.maxDrawdownPct) : '—'} tone="neg" />
+        <Metric
+          label="Drawdown"
+          value={m ? formatPct(-m.maxDrawdownPct) : '—'}
+          tone={m ? 'neg' : undefined}
+        />
         <Metric label="Win rate" value={m ? `${m.winRatePct.toFixed(1)}%` : '—'} />
         <Metric
           label="Profit factor"
@@ -56,11 +60,15 @@ export function ResultsPanel({
 
       <div className="equity-block">
         <div className="block-label">Curva de equity</div>
-        <EquityChart
-          equity={result?.equity ?? []}
-          initialCapital={initialCapital}
-          theme={theme}
-        />
+        {!result ? (
+          <p className="empty-hint">Sem curva — execute o backtest.</p>
+        ) : (
+          <EquityChart
+            equity={result.equity}
+            initialCapital={initialCapital}
+            theme={theme}
+          />
+        )}
       </div>
 
       <div className="trades-block">

@@ -274,6 +274,24 @@ input {
   color: #9f1239;
 }
 
+.api-alert-banner.warn {
+  background: rgba(180, 83, 9, 0.1);
+  border: 1px solid rgba(180, 83, 9, 0.3);
+  color: #9a3412;
+}
+
+html[data-theme='dark'] .api-alert-banner.warn {
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.35);
+  color: #fbbf24;
+}
+
+html[data-theme='dark'] .api-alert-banner.danger {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #fca5a5;
+}
+
 .api-alert {
   margin: 0 0 12px;
   padding: 10px 12px;
@@ -483,6 +501,7 @@ input {
 .section-label,
 .panel-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -491,6 +510,15 @@ input {
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--ink);
+  min-width: 0;
+}
+
+.section-label > span:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .section-label .muted,

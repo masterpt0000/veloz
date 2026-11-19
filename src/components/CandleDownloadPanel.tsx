@@ -287,6 +287,7 @@ export function CandleDownloadPanel({
               placeholder="CANDLES_API_KEY"
               value={apiKeyInput}
               onChange={(e) => setApiKeyInput(e.target.value)}
+              aria-label="Chave da API de candles"
             />
             <button type="button" className="btn ghost" onClick={saveApiKey}>
               Guardar

@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+
 interface ShortcutsHelpProps {
   open: boolean
   onClose: () => void
@@ -25,6 +27,13 @@ const SHORTCUTS = [
 ] as const
 
 export function ShortcutsHelp({ open, onClose }: ShortcutsHelpProps) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    closeRef.current?.focus()
+  }, [open])
+
   if (!open) return null
 
   const isMac =
@@ -48,7 +57,12 @@ export function ShortcutsHelp({ open, onClose }: ShortcutsHelpProps) {
             <h2 id="shortcuts-title">Atalhos de teclado</h2>
             <p>Referência rápida · UI em português</p>
           </div>
-          <button type="button" className="btn ghost" onClick={onClose}>
+          <button
+            ref={closeRef}
+            type="button"
+            className="btn ghost"
+            onClick={onClose}
+          >
             Fechar
           </button>
         </header>
