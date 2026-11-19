@@ -1,3 +1,4 @@
+import type { ThemeMode } from '../lib/theme'
 import type { BacktestResult } from '../types'
 import { formatNumber, formatPct } from '../lib/format'
 import { EquityChart } from './EquityChart'
@@ -8,6 +9,7 @@ interface ResultsPanelProps {
   error: string | null
   running: boolean
   initialCapital: number
+  theme?: ThemeMode
 }
 
 export function ResultsPanel({
@@ -15,6 +17,7 @@ export function ResultsPanel({
   error,
   running,
   initialCapital,
+  theme = 'light',
 }: ResultsPanelProps) {
   const m = result?.metrics
 
@@ -53,7 +56,11 @@ export function ResultsPanel({
 
       <div className="equity-block">
         <div className="block-label">Curva de equity</div>
-        <EquityChart equity={result?.equity ?? []} initialCapital={initialCapital} />
+        <EquityChart
+          equity={result?.equity ?? []}
+          initialCapital={initialCapital}
+          theme={theme}
+        />
       </div>
 
       <div className="trades-block">

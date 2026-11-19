@@ -12,6 +12,7 @@ import { LayoutPresetSelect } from './components/LayoutPresetSelect'
 import { ResultsPanel } from './components/ResultsPanel'
 import { RciDcaPanel } from './components/RciDcaPanel'
 import { RunHistoryPanel } from './components/RunHistoryPanel'
+import { ShortcutsHelp } from './components/ShortcutsHelp'
 import { SimpleStrategyForm } from './components/SimpleStrategyForm'
 import { StrategyBuilderForm } from './components/StrategyBuilderForm'
 import { StrategyEditor } from './components/StrategyEditor'
@@ -88,6 +89,12 @@ import {
   saveLayoutPresetId,
   type LayoutPresetId,
 } from './lib/layoutPresets'
+import {
+  applyThemeToDocument,
+  loadTheme,
+  saveTheme,
+  type ThemeMode,
+} from './lib/theme'
 import type { BacktestResult, Timeframe } from './types'
 import './App.css'
 
@@ -153,8 +160,23 @@ export default function App() {
     loadLayoutPresetId(),
   )
   const [chartParamsOpen, setChartParamsOpen] = useState(false)
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const initial = loadTheme()
+    applyThemeToDocument(initial)
+    return initial
+  })
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const candlesLive = isCandlesApiConfigured()
   const layoutPreset = getPreset(layoutPresetId)
+
+  function handleThemeToggle() {
+    setTheme((prev) => {
+      const next: ThemeMode = prev === 'dark' ? 'light' : 'dark'
+      saveTheme(next)
+      applyThemeToDocument(next)
+      return next
+    })
+  }
 
   const symbol = chartSymbols.find((s) => s.id === symbolId) ?? chartSymbols[0]
   const code = active.code
@@ -412,16 +434,58 @@ export default function App() {
     void handleRun()
   })
 
+  const onThemeShortcut = useEffectEvent(() => {
+    handleThemeToggle()
+  })
+
+  const onShortcutsToggle = useEffectEvent(() => {
+    setShortcutsOpen((v) => !v)
+  })
+
   useEffect(() => {
-    if (pane === 'builder') return
+    function isTypingTarget(t: EventTarget | null) {
+      if (!(t instanceof HTMLElement)) return false
+      const tag = t.tagName
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        t.isContentEditable
+      )
+    }
+
     function onKey(e: KeyboardEvent) {
-      if (!(e.ctrlKey || e.metaKey) || e.key !== 'Enter') return
-      e.preventDefault()
-      onRunShortcut()
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        if (pane === 'builder') return
+        e.preventDefault()
+        onRunShortcut()
+        return
+      }
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        if (isTypingTarget(e.target)) return
+        e.preventDefault()
+        onShortcutsToggle()
+        return
+      }
+      if (e.key === 'Escape' && shortcutsOpen) {
+        e.preventDefault()
+        setShortcutsOpen(false)
+        return
+      }
+      if (
+        (e.key === 't' || e.key === 'T') &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
+        if (isTypingTarget(e.target)) return
+        e.preventDefault()
+        onThemeShortcut()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [pane, onRunShortcut])
+  }, [pane, shortcutsOpen, onRunShortcut, onThemeShortcut, onShortcutsToggle])
 
   const shareHandlers = {
     onExport: handleExport,
@@ -446,6 +510,29 @@ export default function App() {
     }))
   }
 
+  const themeControls = (
+    <>
+      <button
+        type="button"
+        className="btn ghost theme-toggle"
+        onClick={handleThemeToggle}
+        title={theme === 'dark' ? 'Mudar para tema claro (T)' : 'Mudar para tema escuro (T)'}
+        aria-label={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}
+      >
+        {theme === 'dark' ? 'Claro' : 'Escuro'}
+      </button>
+      <button
+        type="button"
+        className="btn ghost"
+        onClick={() => setShortcutsOpen(true)}
+        title="Atalhos de teclado (?)"
+        aria-label="Atalhos de teclado"
+      >
+        Atalhos
+      </button>
+    </>
+  )
+
   if (pane === 'builder') {
     return (
       <div className="app-shell builder-shell">
@@ -458,10 +545,15 @@ export default function App() {
               <p>definições de estratégia</p>
             </div>
           </div>
+          <div className="controls builder-top-controls">{themeControls}</div>
           <div className="topbar-meta">
             <span className="pill muted">painel builder · sync via localStorage</span>
           </div>
         </header>
+        <ShortcutsHelp
+          open={shortcutsOpen}
+          onClose={() => setShortcutsOpen(false)}
+        />
         {statusToast && (
           <div className="status-toast" role="status">
             {statusToast}
@@ -596,6 +688,8 @@ export default function App() {
           >
             {dataPanelOpen ? 'Ocultar dados' : 'Dados BD'}
           </button>
+
+          {themeControls}
         </div>
 
         <div className="topbar-meta">
@@ -670,6 +764,11 @@ export default function App() {
         </div>
       )}
 
+      <ShortcutsHelp
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+      />
+
       <main
         className="workspace workspace-chart"
         style={{ gridTemplateColumns: layoutPresetCss(layoutPreset) }}
@@ -736,6 +835,7 @@ export default function App() {
             visibility={indicatorVisibility}
             mainStretch={layoutPreset.mainStretch}
             separateStretch={layoutPreset.separateStretch}
+            theme={theme}
           />
         </section>
 
@@ -744,6 +844,7 @@ export default function App() {
           error={error}
           running={running}
           initialCapital={INITIAL_CAPITAL}
+          theme={theme}
         />
       </main>
     </div>

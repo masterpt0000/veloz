@@ -7,34 +7,43 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from 'lightweight-charts'
+import { chartColors, type ThemeMode } from '../lib/theme'
 import type { EquityPoint } from '../types'
 
 interface EquityChartProps {
   equity: EquityPoint[]
   initialCapital: number
+  theme?: ThemeMode
 }
 
-export function EquityChart({ equity, initialCapital: _initialCapital }: EquityChartProps) {
+export function EquityChart({
+  equity,
+  initialCapital: _initialCapital,
+  theme = 'light',
+}: EquityChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null)
+  const themeRef = useRef(theme)
+  themeRef.current = theme
 
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
 
+    const colors = chartColors(themeRef.current)
     const chart = createChart(el, {
       autoSize: true,
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#4a5c57',
+        textColor: colors.text,
         fontFamily: "'DM Sans', sans-serif",
         fontSize: 11,
         attributionLogo: false,
       },
       grid: {
         vertLines: { visible: false },
-        horzLines: { color: 'rgba(11, 61, 54, 0.08)' },
+        horzLines: { color: colors.grid },
       },
       rightPriceScale: { borderVisible: false },
       timeScale: { borderVisible: false, visible: false },
@@ -44,9 +53,9 @@ export function EquityChart({ equity, initialCapital: _initialCapital }: EquityC
     })
 
     const series = chart.addSeries(AreaSeries, {
-      lineColor: '#0f766e',
-      topColor: 'rgba(15, 118, 110, 0.35)',
-      bottomColor: 'rgba(15, 118, 110, 0.02)',
+      lineColor: colors.equityLine,
+      topColor: colors.equityTop,
+      bottomColor: colors.equityBottom,
       lineWidth: 2,
       crosshairMarkerVisible: true,
     })
@@ -60,6 +69,27 @@ export function EquityChart({ equity, initialCapital: _initialCapital }: EquityC
       chart.remove()
     }
   }, [])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    const series = seriesRef.current
+    if (!chart || !series) return
+    const colors = chartColors(theme)
+    chart.applyOptions({
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: colors.text,
+      },
+      grid: {
+        horzLines: { color: colors.grid },
+      },
+    })
+    series.applyOptions({
+      lineColor: colors.equityLine,
+      topColor: colors.equityTop,
+      bottomColor: colors.equityBottom,
+    })
+  }, [theme])
 
   useEffect(() => {
     if (!seriesRef.current) return
