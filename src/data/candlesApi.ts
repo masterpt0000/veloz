@@ -186,7 +186,10 @@ export async function fetchCandles(
   if (params.before != null) qs.set('before', String(params.before))
 
   try {
-    const res = await fetch(`${API_URL}/candles?${qs}`, { headers: apiHeaders() })
+    const res = await fetch(`${API_URL}/candles?${qs}`, {
+      headers: apiHeaders(),
+      signal: AbortSignal.timeout(30_000),
+    })
     if (!res.ok) {
       console.warn('[candlesApi] HTTP', res.status, await res.text())
       return null
@@ -203,7 +206,10 @@ export async function fetchCandles(
 export async function fetchSymbolCoverage(): Promise<SymbolCoverage[] | null> {
   if (!API_URL) return null
   try {
-    const res = await fetch(`${API_URL}/symbols`, { headers: apiHeaders() })
+    const res = await fetch(`${API_URL}/symbols`, {
+      headers: apiHeaders(),
+      signal: AbortSignal.timeout(12_000),
+    })
     if (!res.ok) {
       console.warn('[candlesApi] /symbols', res.status, await res.text())
       return null

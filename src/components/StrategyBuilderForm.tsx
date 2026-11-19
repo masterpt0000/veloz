@@ -13,6 +13,7 @@ import {
   type BuilderOperand,
   type VelozBuilderSpec,
 } from '../strategy/builderSpec'
+import { StrategyParamsEditor } from './StrategyParamsEditor'
 
 interface StrategyBuilderFormProps {
   spec: VelozBuilderSpec
@@ -86,10 +87,6 @@ export function StrategyBuilderForm({ spec, onChange }: StrategyBuilderFormProps
     patch({ rules })
   }
 
-  function setRisk(risk: VelozBuilderSpec['risk']) {
-    patch({ risk })
-  }
-
   return (
     <div className="builder-form">
       <header className="builder-form-head">
@@ -97,7 +94,8 @@ export function StrategyBuilderForm({ spec, onChange }: StrategyBuilderFormProps
           <h2>Definições da estratégia</h2>
           <p>
             Formato inspirado no repo <code>backtest</code> (indicadores + regras +
-            risco). O gráfico e resultados ficam na outra janela.
+            risco). Edite parâmetros abaixo sem sair do builder — o gráfico fica
+            na outra janela.
           </p>
         </div>
         <DraftTextField
@@ -106,6 +104,10 @@ export function StrategyBuilderForm({ spec, onChange }: StrategyBuilderFormProps
           onChange={(name) => patch({ name })}
         />
       </header>
+
+      <section className="simple-block params-block">
+        <StrategyParamsEditor spec={spec} onChange={onChange} />
+      </section>
 
       <section className="simple-block">
         <div className="simple-block-head">
@@ -246,37 +248,11 @@ export function StrategyBuilderForm({ spec, onChange }: StrategyBuilderFormProps
         allowEmpty
       />
 
-      <section className="simple-block">
-        <div className="simple-block-head">
-          <h3>Risco (como no backtest)</h3>
-        </div>
-        <div className="simple-rule-row">
-          <NumField
-            label="Take profit %"
-            value={spec.risk.takeProfitPct}
-            step={0.1}
-            onChange={(takeProfitPct) => setRisk({ ...spec.risk, takeProfitPct })}
-          />
-          <NumField
-            label="Stop loss %"
-            value={spec.risk.stopLossPct}
-            step={0.1}
-            onChange={(stopLossPct) => setRisk({ ...spec.risk, stopLossPct })}
-          />
-          <NumField
-            label="Trailing %"
-            value={spec.risk.trailingStopPct}
-            step={0.1}
-            onChange={(trailingStopPct) =>
-              setRisk({ ...spec.risk, trailingStopPct })
-            }
-          />
-        </div>
-        <p className="muted builder-hint">
-          0 = desligado. Preferência: regras de saída estruturadas; TP/SL são
-          intrabar no motor.
-        </p>
-      </section>
+      <p className="muted builder-hint risk-hint">
+        Risco (TP/SL/trailing) edita-se em <strong>Parâmetros</strong> acima. 0 =
+        desligado. Preferência: regras de saída estruturadas; TP/SL são intrabar
+        no motor.
+      </p>
     </div>
   )
 }

@@ -14,7 +14,8 @@ export function IndicatorLegend({
   if (!indicators.length) {
     return (
       <p className="indicator-empty muted">
-        Sem indicadores — devolva <code>indicators</code> na estratégia.
+        Sem indicadores ainda — clique em <strong>Executar backtest</strong> para
+        os ver no gráfico.
       </p>
     )
   }
@@ -34,6 +35,8 @@ export function IndicatorLegend({
               className={`indicator-chip ${on ? 'on' : 'off'}`}
               style={{ ['--ind-color' as string]: ind.color }}
               onClick={() => onToggle(ind.id)}
+              aria-pressed={on}
+              aria-label={`${ind.title} (${paneHint})`}
               title={`${ind.title} · ${paneHint} · clicar para ${on ? 'ocultar' : 'mostrar'}`}
             >
               <span className="indicator-swatch" aria-hidden="true" />

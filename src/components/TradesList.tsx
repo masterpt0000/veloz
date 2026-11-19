@@ -23,6 +23,13 @@ export function TradesList({ trades }: TradesListProps) {
     return () => ro.disconnect()
   }, [])
 
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    el.scrollTop = 0
+    setScrollTop(0)
+  }, [trades])
+
   const onScroll = useCallback(() => {
     const el = scrollerRef.current
     if (el) setScrollTop(el.scrollTop)

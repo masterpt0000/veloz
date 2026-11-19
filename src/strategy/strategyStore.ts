@@ -22,6 +22,8 @@ import { ensureTemplateStrategies } from './strategyTemplates'
 
 const STORAGE_KEY = 'veloz.strategies.v1'
 
+export type StrategySortMode = 'favorites' | 'recent' | 'name'
+
 export interface SavedStrategy {
   id: string
   name: string
@@ -37,6 +39,24 @@ export interface SavedStrategy {
   rciDcaParams?: Partial<RciDcaParams>
   /** Spec for builtin chart-builder engine (backtest-inspired). */
   builderSpec?: VelozBuilderSpec
+  /** Free-form tags for filter/sort in the strategy list. */
+  tags: string[]
+  /** Starred strategies sort first when using favorites sort. */
+  favorite: boolean
+}
+
+export function normalizeTags(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    const tag = item.trim().toLowerCase()
+    if (!tag || seen.has(tag)) continue
+    seen.add(tag)
+    out.push(tag)
+  }
+  return out
 }
 
 export interface StrategyLibrary {
@@ -70,6 +90,8 @@ function makeRciDcaStrategy(): SavedStrategy {
     simpleConfig: defaultSimpleConfig(),
     engine: 'rci_dca',
     rciDcaParams: { ...RCI_DCA_DEFAULT_PARAMS },
+    tags: ['rci', 'dca'],
+    favorite: false,
   }
 }
 
@@ -84,6 +106,8 @@ function makeBuilderStrategy(): SavedStrategy {
     simpleConfig: defaultSimpleConfig(),
     engine: 'builder',
     builderSpec: spec,
+    tags: ['builder'],
+    favorite: false,
   }
 }
 
@@ -111,6 +135,8 @@ function migrateStrategy(raw: Partial<SavedStrategy> & { id: string; name: strin
         : raw.builderSpec
           ? normalizeBuilderSpec(raw.builderSpec)
           : undefined,
+    tags: normalizeTags(raw.tags),
+    favorite: raw.favorite === true,
   }
 }
 
@@ -127,6 +153,8 @@ export function createSeedLibrary(): StrategyLibrary {
       updatedAt: Date.now(),
       mode: 'advanced',
       simpleConfig,
+      tags: ['amostra', 'sma', 'rsi'],
+      favorite: false,
     },
     rci,
     builder,
@@ -289,6 +317,8 @@ export function createStrategy(
         updatedAt: Date.now(),
         mode: 'advanced',
         simpleConfig,
+        tags: [],
+        favorite: false,
       }
     : {
         id,
@@ -299,6 +329,8 @@ export function createStrategy(
         simpleConfig,
         engine: 'builder',
         builderSpec: defaultBuilderSpec(trimmed),
+        tags: [],
+        favorite: false,
       }
   return {
     activeId: id,
@@ -326,6 +358,121 @@ export function updateActiveBuilderSpec(
         : s,
     ),
   }
+}
+
+export function updateActiveRciDcaParams(
+  library: StrategyLibrary,
+  rciDcaParams: Partial<RciDcaParams>,
+): StrategyLibrary {
+  return {
+    ...library,
+    strategies: library.strategies.map((s) =>
+      s.id === library.activeId
+        ? {
+            ...s,
+            engine: 'rci_dca',
+            rciDcaParams: { ...RCI_DCA_DEFAULT_PARAMS, ...rciDcaParams },
+            code: RCI_DCA_STRATEGY_CODE,
+            updatedAt: Date.now(),
+          }
+        : s,
+    ),
+  }
+}
+
+/** Deep-clone a strategy with a new id and name. */
+export function duplicateStrategy(
+  library: StrategyLibrary,
+  id: string,
+  newName?: string,
+): StrategyLibrary {
+  const source = library.strategies.find((s) => s.id === id)
+  if (!source) return library
+  const trimmed = (newName ?? `Cópia de ${source.name}`).trim() || `Cópia de ${source.name}`
+  const clone: SavedStrategy = {
+    ...structuredClone(source),
+    id: uid(),
+    name: trimmed,
+    updatedAt: Date.now(),
+    favorite: false,
+  }
+  if (clone.builderSpec) {
+    clone.builderSpec = { ...clone.builderSpec, name: trimmed }
+  }
+  return {
+    activeId: clone.id,
+    strategies: [...library.strategies, clone],
+  }
+}
+
+export function setStrategyFavorite(
+  library: StrategyLibrary,
+  id: string,
+  favorite: boolean,
+): StrategyLibrary {
+  return {
+    ...library,
+    strategies: library.strategies.map((s) =>
+      s.id === id ? { ...s, favorite, updatedAt: Date.now() } : s,
+    ),
+  }
+}
+
+export function setStrategyTags(
+  library: StrategyLibrary,
+  id: string,
+  tags: string[],
+): StrategyLibrary {
+  const normalized = normalizeTags(tags)
+  return {
+    ...library,
+    strategies: library.strategies.map((s) =>
+      s.id === id ? { ...s, tags: normalized, updatedAt: Date.now() } : s,
+    ),
+  }
+}
+
+export function listAllTags(strategies: SavedStrategy[]): string[] {
+  const seen = new Set<string>()
+  for (const s of strategies) {
+    for (const tag of s.tags) seen.add(tag)
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b, 'pt'))
+}
+
+export function filterAndSortStrategies(
+  strategies: SavedStrategy[],
+  opts: {
+    query?: string
+    tag?: string | null
+    favoritesOnly?: boolean
+    sort?: StrategySortMode
+  } = {},
+): SavedStrategy[] {
+  const query = (opts.query ?? '').trim().toLowerCase()
+  const tag = opts.tag?.trim().toLowerCase() || null
+  const sort = opts.sort ?? 'favorites'
+
+  let list = strategies.filter((s) => {
+    if (opts.favoritesOnly && !s.favorite) return false
+    if (tag && !s.tags.includes(tag)) return false
+    if (!query) return true
+    const hay = `${s.name} ${s.tags.join(' ')}`.toLowerCase()
+    return hay.includes(query)
+  })
+
+  list = [...list]
+  if (sort === 'name') {
+    list.sort((a, b) => a.name.localeCompare(b.name, 'pt', { sensitivity: 'base' }))
+  } else if (sort === 'recent') {
+    list.sort((a, b) => b.updatedAt - a.updatedAt)
+  } else {
+    list.sort((a, b) => {
+      if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
+      return b.updatedAt - a.updatedAt
+    })
+  }
+  return list
 }
 
 export function renameStrategy(

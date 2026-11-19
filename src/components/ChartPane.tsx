@@ -15,6 +15,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
+import { chartColors, type ThemeMode } from '../lib/theme'
 import type { Bar, NormalizedIndicator, Signal } from '../types'
 
 interface ChartPaneProps {
@@ -28,6 +29,8 @@ interface ChartPaneProps {
   mainStretch?: number
   /** Stretch factor for each separate indicator pane. */
   separateStretch?: number
+  /** Match chart chrome to app light/dark theme. */
+  theme?: ThemeMode
 }
 
 type AnySeries = ISeriesApi<'Line'> | ISeriesApi<'Histogram'>
@@ -39,12 +42,15 @@ interface ManagedSeries {
   style: 'line' | 'histogram'
 }
 
-const CHART_LAYOUT = {
-  background: { type: ColorType.Solid as const, color: 'transparent' },
-  textColor: '#4a5c57',
-  fontFamily: "'DM Sans', sans-serif",
-  fontSize: 12,
-  attributionLogo: false,
+function chartLayout(mode: ThemeMode) {
+  const c = chartColors(mode)
+  return {
+    background: { type: ColorType.Solid as const, color: 'transparent' },
+    textColor: c.text,
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: 12,
+    attributionLogo: false,
+  }
 }
 
 function toUtcData(data: NormalizedIndicator['data']) {
@@ -70,6 +76,7 @@ export function ChartPane({
   visibility,
   mainStretch = 3,
   separateStretch = 1,
+  theme = 'light',
 }: ChartPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -79,23 +86,26 @@ export function ChartPane({
   const managedRef = useRef<Map<string, ManagedSeries>>(new Map())
   const panesRef = useRef<Map<string, IPaneApi<Time>>>(new Map())
   const stretchRef = useRef({ main: mainStretch, separate: separateStretch })
+  const themeRef = useRef(theme)
   stretchRef.current = { main: mainStretch, separate: separateStretch }
+  themeRef.current = theme
 
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
 
+    const colors = chartColors(themeRef.current)
     const chart = createChart(el, {
       autoSize: true,
-      layout: CHART_LAYOUT,
+      layout: chartLayout(themeRef.current),
       grid: {
-        vertLines: { color: 'rgba(11, 61, 54, 0.07)' },
-        horzLines: { color: 'rgba(11, 61, 54, 0.07)' },
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: 'rgba(11, 61, 54, 0.35)', width: 1, style: 2 },
-        horzLine: { color: 'rgba(11, 61, 54, 0.35)', width: 1, style: 2 },
+        vertLine: { color: colors.crosshair, width: 1, style: 2 },
+        horzLine: { color: colors.crosshair, width: 1, style: 2 },
       },
       rightPriceScale: {
         borderVisible: false,
@@ -106,26 +116,35 @@ export function ChartPane({
         timeVisible: true,
         secondsVisible: false,
       },
-      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true },
-      handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: false,
+      },
+      handleScale: {
+        axisPressedMouseMove: true,
+        mouseWheel: true,
+        pinch: true,
+      },
     })
 
     const mainPane = chart.panes()[0]
     mainPane.setStretchFactor(stretchRef.current.main)
 
     const candles = chart.addSeries(CandlestickSeries, {
-      upColor: '#0f766e',
-      downColor: '#c2410c',
-      borderUpColor: '#0f766e',
-      borderDownColor: '#c2410c',
-      wickUpColor: '#0f766e',
-      wickDownColor: '#c2410c',
+      upColor: colors.up,
+      downColor: colors.down,
+      borderUpColor: colors.up,
+      borderDownColor: colors.down,
+      wickUpColor: colors.up,
+      wickDownColor: colors.down,
     })
 
     const volume = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
-      color: 'rgba(13, 110, 95, 0.35)',
+      color: colors.volumeUp,
     })
     chart.priceScale('volume').applyOptions({
       scaleMargins: { top: 0.82, bottom: 0 },
@@ -146,8 +165,34 @@ export function ChartPane({
       chartRef.current = null
       chart.remove()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once; volume margins updated below
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once; theme/volume updated below
   }, [])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    const candles = candleRef.current
+    if (!chart || !candles) return
+    const colors = chartColors(theme)
+    chart.applyOptions({
+      layout: chartLayout(theme),
+      grid: {
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid },
+      },
+      crosshair: {
+        vertLine: { color: colors.crosshair },
+        horzLine: { color: colors.crosshair },
+      },
+    })
+    candles.applyOptions({
+      upColor: colors.up,
+      downColor: colors.down,
+      borderUpColor: colors.up,
+      borderDownColor: colors.down,
+      wickUpColor: colors.up,
+      wickDownColor: colors.down,
+    })
+  }, [theme])
 
   useEffect(() => {
     chartRef.current?.priceScale('right').applyOptions({
@@ -169,23 +214,22 @@ export function ChartPane({
       })),
     )
 
+    const colors = chartColors(themeRef.current)
     volumeRef.current.setData(
       bars.map((b) => ({
         time: b.time as UTCTimestamp,
         value: b.volume,
-        color:
-          b.close >= b.open
-            ? 'rgba(15, 118, 110, 0.35)'
-            : 'rgba(194, 65, 12, 0.35)',
+        color: b.close >= b.open ? colors.volumeUp : colors.volumeDown,
       })),
     )
 
     chartRef.current?.timeScale().fitContent()
-  }, [bars])
+  }, [bars, theme])
 
   useEffect(() => {
     if (!markersRef.current) return
 
+    const colors = chartColors(theme)
     const maxMarkers = 2500
     const step = Math.max(1, Math.ceil(signals.length / maxMarkers))
     const markers: SeriesMarker<Time>[] = []
@@ -196,14 +240,14 @@ export function ChartPane({
       markers.push({
         time: s.time as UTCTimestamp,
         position: isBuy ? 'belowBar' : 'aboveBar',
-        color: isBuy ? '#0f766e' : '#c2410c',
+        color: isBuy ? colors.up : colors.down,
         shape: isBuy ? 'arrowUp' : 'arrowDown',
         text: s.label ?? (isBuy ? 'C' : 'V'),
       })
     }
 
     markersRef.current.setMarkers(markers)
-  }, [signals])
+  }, [signals, theme])
 
   // Reconcile indicator series onto overlay / separate panes (setData only — no React per point)
   useEffect(() => {

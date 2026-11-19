@@ -3,6 +3,7 @@ import {
   useDeferredValue,
   useEffect,
   useEffectEvent,
+  useRef,
   useState,
 } from 'react'
 import { CandleDownloadPanel } from './components/CandleDownloadPanel'
@@ -12,10 +13,12 @@ import { LayoutPresetSelect } from './components/LayoutPresetSelect'
 import { ResultsPanel } from './components/ResultsPanel'
 import { RciDcaPanel } from './components/RciDcaPanel'
 import { RunHistoryPanel } from './components/RunHistoryPanel'
+import { ShortcutsHelp } from './components/ShortcutsHelp'
 import { SimpleStrategyForm } from './components/SimpleStrategyForm'
 import { StrategyBuilderForm } from './components/StrategyBuilderForm'
 import { StrategyEditor } from './components/StrategyEditor'
 import { StrategyModeTabs } from './components/StrategyModeTabs'
+import { StrategyParamsEditor } from './components/StrategyParamsEditor'
 import { StrategyToolbar } from './components/StrategyToolbar'
 import {
   fetchSymbolCoverage,
@@ -58,19 +61,24 @@ import {
   downloadStrategyJson,
   parseStrategyJson,
 } from './strategy/strategyExport'
+import type { RciDcaParams } from './strategy/rciDcaEngine'
 import {
   addStrategy,
   createStrategy,
   deleteStrategy,
+  duplicateStrategy,
   getActive,
   loadLibrary,
   renameStrategy,
   resolveRunCode,
   saveLibrary,
   selectStrategy,
+  setStrategyFavorite,
+  setStrategyTags,
   updateActiveBuilderSpec,
   updateActiveCode,
   updateActiveMode,
+  updateActiveRciDcaParams,
   updateActiveSimpleConfig,
   type StrategyLibrary,
 } from './strategy/strategyStore'
@@ -82,6 +90,12 @@ import {
   saveLayoutPresetId,
   type LayoutPresetId,
 } from './lib/layoutPresets'
+import {
+  applyThemeToDocument,
+  loadTheme,
+  saveTheme,
+  type ThemeMode,
+} from './lib/theme'
 import type { BacktestResult, Timeframe } from './types'
 import './App.css'
 
@@ -96,8 +110,75 @@ function readPane(): 'chart' | 'builder' {
   }
 }
 
-function useStrategyLibrary() {
+function statusPillClass(
+  alert: CandlesApiAlert | null,
+  candlesLive: boolean,
+  demoFallback: boolean,
+): string {
+  if (!candlesLive) return 'muted'
+  if (demoFallback) return 'warn'
+  if (!alert) return 'muted'
+  if (alert.kind === 'ok') return ''
+  if (alert.kind === 'no_key') return 'warn'
+  if (alert.kind === 'unconfigured') return 'muted'
+  return 'danger'
+}
+
+function statusPillLabel(
+  alert: CandlesApiAlert | null,
+  candlesLive: boolean,
+  demoFallback: boolean,
+): string {
+  if (!candlesLive) return 'dados demo'
+  if (demoFallback) return 'demo (API sem dados)'
+  if (!alert) return 'A ligar…'
+  switch (alert.kind) {
+    case 'ok':
+      return 'API candles'
+    case 'offline':
+      return 'API offline'
+    case 'unauthorized':
+      return 'API 401'
+    case 'no_key':
+      return 'API sem chave'
+    case 'error':
+      return 'API erro'
+    case 'unconfigured':
+      return 'dados demo'
+    default:
+      return 'API candles'
+  }
+}
+
+function statusPillTitle(
+  alert: CandlesApiAlert | null,
+  demoFallback: boolean,
+): string | undefined {
+  if (demoFallback) {
+    return 'A API respondeu sem barras — a usar série demo local.'
+  }
+  if (alert && 'message' in alert) return alert.message
+  return undefined
+}
+
+function shouldShowApiBanner(
+  alert: CandlesApiAlert | null,
+  demoFallback: boolean,
+): boolean {
+  if (demoFallback) return true
+  if (!alert) return false
+  return (
+    alert.kind === 'offline' ||
+    alert.kind === 'unauthorized' ||
+    alert.kind === 'error' ||
+    alert.kind === 'no_key'
+  )
+}
+
+function useStrategyLibrary(onExternalSync?: () => void) {
   const [library, setLibrary] = useState<StrategyLibrary>(() => loadLibrary())
+  const externalSyncRef = useRef(onExternalSync)
+  externalSyncRef.current = onExternalSync
 
   useEffect(() => {
     saveLibrary(library)
@@ -109,6 +190,7 @@ function useStrategyLibrary() {
       if (e.key !== 'veloz.strategies.v1' || !e.newValue) return
       try {
         setLibrary(loadLibrary())
+        externalSyncRef.current?.()
       } catch {
         /* ignore */
       }
@@ -127,14 +209,32 @@ export default function App() {
   const [timeframe, setTimeframe] = useState<Timeframe>('1h')
   const [barCount, setBarCount] = useState<number>(25_000)
   const [showVolume, setShowVolume] = useState(true)
-  const { library, setLibrary, active } = useStrategyLibrary()
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
-  const [dataMs, setDataMs] = useState(0)
   const [indicatorVisibility, setIndicatorVisibility] = useState<
     Record<string, boolean>
   >({})
+  const runningRef = useRef(false)
+  const runGenRef = useRef(0)
+
+  function clearChartRun() {
+    setResult(null)
+    setError(null)
+    setIndicatorVisibility({})
+  }
+
+  function invalidateInFlightRun() {
+    runGenRef.current += 1
+    runningRef.current = false
+    setRunning(false)
+  }
+
+  const { library, setLibrary, active } = useStrategyLibrary(() => {
+    invalidateInFlightRun()
+    clearChartRun()
+  })
+  const [dataMs, setDataMs] = useState(0)
   const [dataPanelOpen, setDataPanelOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [runHistory, setRunHistory] = useState<RunHistoryStore>(() =>
@@ -143,11 +243,29 @@ export default function App() {
   const [statusToast, setStatusToast] = useState<string | null>(null)
   const [chartSymbols, setChartSymbols] = useState(SYMBOLS)
   const [apiAlert, setApiAlert] = useState<CandlesApiAlert | null>(null)
+  /** True when API is configured but the last bar load fell back to demo series. */
+  const [demoFallback, setDemoFallback] = useState(false)
   const [layoutPresetId, setLayoutPresetId] = useState<LayoutPresetId>(() =>
     loadLayoutPresetId(),
   )
+  const [chartParamsOpen, setChartParamsOpen] = useState(false)
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const initial = loadTheme()
+    applyThemeToDocument(initial)
+    return initial
+  })
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const candlesLive = isCandlesApiConfigured()
   const layoutPreset = getPreset(layoutPresetId)
+
+  function handleThemeToggle() {
+    setTheme((prev) => {
+      const next: ThemeMode = prev === 'dark' ? 'light' : 'dark'
+      saveTheme(next)
+      applyThemeToDocument(next)
+      return next
+    })
+  }
 
   const symbol = chartSymbols.find((s) => s.id === symbolId) ?? chartSymbols[0]
   const code = active.code
@@ -209,13 +327,14 @@ export default function App() {
     async function loadBars() {
       const live = await fetchMarketData(symbol.id, timeframe, barCount)
       if (cancelled) return
+      const usedDemo = live == null && candlesLive
       const next = live ?? generateMarketData(symbol, timeframe, barCount)
+      invalidateInFlightRun()
       startTransition(() => {
         setBars(next)
+        setDemoFallback(usedDemo)
         setDataMs(performance.now() - t0)
-        setResult(null)
-        setError(null)
-        setIndicatorVisibility({})
+        clearChartRun()
       })
     }
 
@@ -223,7 +342,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [symbol, timeframe, barCount, pane])
+  }, [symbol, timeframe, barCount, pane, candlesLive])
 
   const deferredBars = useDeferredValue(bars)
   const deferredSignals = useDeferredValue(result?.signals ?? [])
@@ -245,11 +364,38 @@ export default function App() {
     setLibrary((lib) => updateActiveBuilderSpec(lib, next))
   }
 
-  function handleSelect(id: string) {
-    setLibrary((lib) => selectStrategy(lib, id))
+  function handleRciParamsChange(next: Partial<RciDcaParams>) {
+    setLibrary((lib) => updateActiveRciDcaParams(lib, next))
+  }
+
+  function handleDuplicate() {
+    const current = getActive(library)
+    const name = window.prompt(
+      'Nome da cópia:',
+      `Cópia de ${current.name}`,
+    )
+    if (name == null) return
+    setLibrary((lib) => duplicateStrategy(lib, current.id, name))
     setResult(null)
     setError(null)
     setIndicatorVisibility({})
+    setStatusToast(`Duplicada: ${name.trim() || `Cópia de ${current.name}`}`)
+  }
+
+  function handleToggleFavorite(id: string) {
+    const target = library.strategies.find((s) => s.id === id)
+    if (!target) return
+    setLibrary((lib) => setStrategyFavorite(lib, id, !target.favorite))
+  }
+
+  function handleTagsChange(id: string, tags: string[]) {
+    setLibrary((lib) => setStrategyTags(lib, id, tags))
+  }
+
+  function handleSelect(id: string) {
+    invalidateInFlightRun()
+    setLibrary((lib) => selectStrategy(lib, id))
+    clearChartRun()
   }
 
   function handleCreate() {
@@ -335,7 +481,11 @@ export default function App() {
   }
 
   async function handleRun() {
+    if (runningRef.current) return
+    runningRef.current = true
+    const gen = ++runGenRef.current
     setRunning(true)
+    setResult(null)
     setError(null)
     try {
       const runCode = resolveRunCode(active)
@@ -349,6 +499,7 @@ export default function App() {
         builtin: active.engine,
         builtinParams: builtinParams as Record<string, unknown> | undefined,
       })
+      if (gen !== runGenRef.current) return
       setResult(next)
       const seed: Record<string, boolean> = {}
       for (const ind of next.indicators) seed[ind.id] = ind.visible
@@ -365,10 +516,14 @@ export default function App() {
         }),
       )
     } catch (err) {
+      if (gen !== runGenRef.current) return
       setResult(null)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setRunning(false)
+      if (gen === runGenRef.current) {
+        runningRef.current = false
+        setRunning(false)
+      }
     }
   }
 
@@ -377,22 +532,70 @@ export default function App() {
     void handleRun()
   })
 
+  const onThemeShortcut = useEffectEvent(() => {
+    handleThemeToggle()
+  })
+
+  const onShortcutsToggle = useEffectEvent(() => {
+    setShortcutsOpen((v) => !v)
+  })
+
   useEffect(() => {
-    if (pane === 'builder') return
+    function isTypingTarget(t: EventTarget | null) {
+      if (!(t instanceof HTMLElement)) return false
+      const tag = t.tagName
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        t.isContentEditable
+      )
+    }
+
     function onKey(e: KeyboardEvent) {
-      if (!(e.ctrlKey || e.metaKey) || e.key !== 'Enter') return
-      e.preventDefault()
-      onRunShortcut()
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        if (pane === 'builder') return
+        e.preventDefault()
+        onRunShortcut()
+        return
+      }
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        if (isTypingTarget(e.target)) return
+        e.preventDefault()
+        onShortcutsToggle()
+        return
+      }
+      if (e.key === 'Escape' && shortcutsOpen) {
+        e.preventDefault()
+        setShortcutsOpen(false)
+        return
+      }
+      if (
+        (e.key === 't' || e.key === 'T') &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
+        if (isTypingTarget(e.target)) return
+        e.preventDefault()
+        onThemeShortcut()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [pane, onRunShortcut])
+  }, [pane, shortcutsOpen, onRunShortcut, onThemeShortcut, onShortcutsToggle])
 
   const shareHandlers = {
     onExport: handleExport,
     onCopyExport: handleCopyExport,
     onImportJson: handleImportJson,
     onAddTemplate: handleAddTemplate,
+  }
+
+  const libraryHandlers = {
+    onDuplicate: handleDuplicate,
+    onToggleFavorite: handleToggleFavorite,
+    onTagsChange: handleTagsChange,
   }
 
   const isBuiltinRci = active.engine === 'rci_dca'
@@ -404,6 +607,29 @@ export default function App() {
       [id]: !(prev[id] ?? true),
     }))
   }
+
+  const themeControls = (
+    <>
+      <button
+        type="button"
+        className="btn ghost theme-toggle"
+        onClick={handleThemeToggle}
+        title={theme === 'dark' ? 'Mudar para tema claro (T)' : 'Mudar para tema escuro (T)'}
+        aria-label={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}
+      >
+        {theme === 'dark' ? 'Claro' : 'Escuro'}
+      </button>
+      <button
+        type="button"
+        className="btn ghost"
+        onClick={() => setShortcutsOpen(true)}
+        title="Atalhos de teclado (?)"
+        aria-label="Atalhos de teclado"
+      >
+        Atalhos
+      </button>
+    </>
+  )
 
   if (pane === 'builder') {
     return (
@@ -417,10 +643,15 @@ export default function App() {
               <p>definições de estratégia</p>
             </div>
           </div>
+          <div className="controls builder-top-controls">{themeControls}</div>
           <div className="topbar-meta">
             <span className="pill muted">painel builder · sync via localStorage</span>
           </div>
         </header>
+        <ShortcutsHelp
+          open={shortcutsOpen}
+          onClose={() => setShortcutsOpen(false)}
+        />
         {statusToast && (
           <div className="status-toast" role="status">
             {statusToast}
@@ -440,21 +671,19 @@ export default function App() {
               onDelete={handleDelete}
               onRun={() => undefined}
               {...shareHandlers}
+              {...libraryHandlers}
             />
           </div>
           {isBuiltinRci ? (
-            <RciDcaPanel params={active.rciDcaParams} />
-          ) : isBuilder || !active.engine ? (
+            <RciDcaPanel
+              params={active.rciDcaParams}
+              onChange={handleRciParamsChange}
+            />
+          ) : isBuilder ? (
             <StrategyBuilderForm
               key={library.activeId}
-              spec={
-                isBuilder || active.builderSpec
-                  ? builderSpec
-                  : defaultBuilderSpec(active.name)
-              }
-              onChange={(next) => {
-                handleBuilderSpecChange(next)
-              }}
+              spec={builderSpec}
+              onChange={handleBuilderSpecChange}
             />
           ) : mode === 'simple' ? (
             <SimpleStrategyForm
@@ -493,7 +722,11 @@ export default function App() {
         <div className="controls">
           <label className="field">
             <span>Ativo</span>
-            <select value={symbolId} onChange={(e) => setSymbolId(e.target.value)}>
+            <select
+              value={symbolId}
+              onChange={(e) => setSymbolId(e.target.value)}
+              aria-label="Ativo"
+            >
               {chartSymbols.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
@@ -507,6 +740,7 @@ export default function App() {
             <select
               value={timeframe}
               onChange={(e) => setTimeframe(e.target.value as Timeframe)}
+              aria-label="Tempo"
             >
               {TIMEFRAMES.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -521,6 +755,7 @@ export default function App() {
             <select
               value={barCount}
               onChange={(e) => setBarCount(Number(e.target.value))}
+              aria-label="Barras"
             >
               {BAR_COUNTS.map((b) => (
                 <option key={b.id} value={b.id}>
@@ -535,6 +770,7 @@ export default function App() {
               type="checkbox"
               checked={showVolume}
               onChange={(e) => setShowVolume(e.target.checked)}
+              aria-label="Mostrar volume"
             />
             <span>Volume</span>
           </label>
@@ -551,57 +787,44 @@ export default function App() {
           >
             {dataPanelOpen ? 'Ocultar dados' : 'Dados BD'}
           </button>
+
+          {themeControls}
         </div>
 
         <div className="topbar-meta">
           <span
-            className={`pill ${
-              !candlesLive || apiAlert?.kind === 'ok'
-                ? candlesLive
-                  ? ''
-                  : 'muted'
-                : apiAlert?.kind === 'no_key'
-                  ? 'warn'
-                  : 'danger'
-            }`}
-            title={
-              apiAlert && 'message' in apiAlert ? apiAlert.message : undefined
-            }
+            className={`pill ${statusPillClass(apiAlert, candlesLive, demoFallback)}`}
+            title={statusPillTitle(apiAlert, demoFallback)}
           >
-            {!candlesLive
-              ? 'dados demo'
-              : apiAlert?.kind === 'ok'
-                ? 'API candles'
-                : apiAlert?.kind === 'offline'
-                  ? 'API offline'
-                  : apiAlert?.kind === 'unauthorized'
-                    ? 'API 401'
-                    : apiAlert?.kind === 'no_key'
-                      ? 'API sem chave'
-                      : apiAlert?.kind === 'error'
-                        ? 'API erro'
-                        : 'API candles'}{' '}
-            · {deferredBars.length.toLocaleString('pt-PT')} · {dataMs.toFixed(0)}{' '}
+            {statusPillLabel(apiAlert, candlesLive, demoFallback)} ·{' '}
+            {deferredBars.length.toLocaleString('pt-PT')} · {dataMs.toFixed(0)}{' '}
             ms
           </span>
         </div>
       </header>
 
-      {apiAlert &&
-        (apiAlert.kind === 'offline' ||
-          apiAlert.kind === 'unauthorized' ||
-          apiAlert.kind === 'error') && (
-          <div className="api-alert-banner danger" role="alert">
-            <strong>Candles API:</strong> {apiAlert.message}
-            <button
-              type="button"
-              className="btn ghost"
-              onClick={() => setDataPanelOpen(true)}
-            >
-              Abrir Dados BD
-            </button>
-          </div>
-        )}
+      {shouldShowApiBanner(apiAlert, demoFallback) && (
+        <div
+          className={`api-alert-banner ${
+            apiAlert?.kind === 'no_key' || demoFallback ? 'warn' : 'danger'
+          }`}
+          role="alert"
+        >
+          <strong>Candles API:</strong>{' '}
+          {demoFallback && (!apiAlert || apiAlert.kind === 'ok')
+            ? 'Sem candles na BD para este ativo/tempo — a mostrar série demo.'
+            : apiAlert && 'message' in apiAlert
+              ? apiAlert.message
+              : 'Problema na API de candles.'}
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => setDataPanelOpen(true)}
+          >
+            Abrir Dados BD
+          </button>
+        </div>
+      )}
 
       <CandleDownloadPanel
         open={dataPanelOpen}
@@ -625,6 +848,11 @@ export default function App() {
         </div>
       )}
 
+      <ShortcutsHelp
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+      />
+
       <main
         className="workspace workspace-chart"
         style={{ gridTemplateColumns: layoutPresetCss(layoutPreset) }}
@@ -647,8 +875,37 @@ export default function App() {
               onToggleHistory={() => setHistoryOpen((v) => !v)}
               historyCount={runHistory.runs.length}
               {...shareHandlers}
+              {...libraryHandlers}
             />
           </div>
+          {(isBuilder || isBuiltinRci) && (
+            <div className="chart-params-bar">
+              <button
+                type="button"
+                className="btn ghost"
+                aria-expanded={chartParamsOpen}
+                onClick={() => setChartParamsOpen((v) => !v)}
+              >
+                {chartParamsOpen ? 'Ocultar parâmetros' : 'Parâmetros'}
+              </button>
+              {chartParamsOpen && (
+                <div className="chart-params-panel">
+                  {isBuiltinRci ? (
+                    <RciDcaPanel
+                      params={active.rciDcaParams}
+                      onChange={handleRciParamsChange}
+                    />
+                  ) : (
+                    <StrategyParamsEditor
+                      compact
+                      spec={builderSpec}
+                      onChange={handleBuilderSpecChange}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <IndicatorLegend
             indicators={deferredIndicators}
             visibility={indicatorVisibility}
@@ -662,6 +919,7 @@ export default function App() {
             visibility={indicatorVisibility}
             mainStretch={layoutPreset.mainStretch}
             separateStretch={layoutPreset.separateStretch}
+            theme={theme}
           />
         </section>
 
@@ -670,6 +928,7 @@ export default function App() {
           error={error}
           running={running}
           initialCapital={INITIAL_CAPITAL}
+          theme={theme}
         />
       </main>
     </div>
