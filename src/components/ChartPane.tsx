@@ -24,6 +24,10 @@ interface ChartPaneProps {
   showVolume: boolean
   /** Local UI visibility overrides keyed by indicator id. */
   visibility: Record<string, boolean>
+  /** Stretch factor for the main candle pane. */
+  mainStretch?: number
+  /** Stretch factor for each separate indicator pane. */
+  separateStretch?: number
 }
 
 type AnySeries = ISeriesApi<'Line'> | ISeriesApi<'Histogram'>
@@ -51,12 +55,21 @@ function toUtcData(data: NormalizedIndicator['data']) {
   )
 }
 
+/** Stable target pane key for an indicator (avoids empty/ghost paneIds). */
+function targetPaneId(ind: NormalizedIndicator): string {
+  if (ind.pane === 'overlay') return 'overlay'
+  const raw = (ind.paneId || ind.id || 'separate').trim()
+  return raw || ind.id || 'separate'
+}
+
 export function ChartPane({
   bars,
   signals,
   indicators,
   showVolume,
   visibility,
+  mainStretch = 3,
+  separateStretch = 1,
 }: ChartPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -65,6 +78,8 @@ export function ChartPane({
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
   const managedRef = useRef<Map<string, ManagedSeries>>(new Map())
   const panesRef = useRef<Map<string, IPaneApi<Time>>>(new Map())
+  const stretchRef = useRef({ main: mainStretch, separate: separateStretch })
+  stretchRef.current = { main: mainStretch, separate: separateStretch }
 
   useEffect(() => {
     const el = containerRef.current
@@ -96,7 +111,7 @@ export function ChartPane({
     })
 
     const mainPane = chart.panes()[0]
-    mainPane.setStretchFactor(3)
+    mainPane.setStretchFactor(stretchRef.current.main)
 
     const candles = chart.addSeries(CandlestickSeries, {
       upColor: '#0f766e',
@@ -131,6 +146,7 @@ export function ChartPane({
       chartRef.current = null
       chart.remove()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once; volume margins updated below
   }, [])
 
   useEffect(() => {
@@ -200,42 +216,65 @@ export function ChartPane({
 
     for (const [id, entry] of managed) {
       if (!nextIds.has(id)) {
-        chart.removeSeries(entry.series)
+        try {
+          chart.removeSeries(entry.series)
+        } catch {
+          /* already gone */
+        }
         managed.delete(id)
       }
     }
 
-    // Drop empty separate panes (keep main)
-    const neededPaneIds = new Set(
-      indicators
-        .filter((ind) => ind.pane === 'separate')
-        .map((ind) => ind.paneId),
-    )
-    for (const [paneId, pane] of [...panes.entries()]) {
-      if (paneId === 'main') continue
-      if (!neededPaneIds.has(paneId)) {
+    // Needed separate panes in stable sorted order (avoids layout thrash / index ghosts)
+    const neededPaneIds = [
+      ...new Set(
+        indicators
+          .filter((ind) => ind.pane === 'separate')
+          .map((ind) => targetPaneId(ind)),
+      ),
+    ].sort()
+
+    // Drop empty separate panes — highest paneIndex first so removals don't shift lower indices
+    const removable = [...panes.entries()]
+      .filter(([paneId]) => paneId !== 'main' && !neededPaneIds.includes(paneId))
+      .map(([paneId, pane]) => {
+        let idx = -1
         try {
-          chart.removePane(pane.paneIndex())
+          idx = pane.paneIndex()
         } catch {
-          /* pane may already be gone */
+          idx = -1
         }
-        panes.delete(paneId)
+        return { paneId, pane, idx }
+      })
+      .filter((x) => x.idx >= 0)
+      .sort((a, b) => b.idx - a.idx)
+
+    for (const { paneId, pane } of removable) {
+      try {
+        chart.removePane(pane.paneIndex())
+      } catch {
+        /* pane may already be gone */
       }
+      panes.delete(paneId)
     }
 
     for (const ind of indicators) {
       const shown =
         visibility[ind.id] !== undefined ? visibility[ind.id] : ind.visible
+      const paneKey = targetPaneId(ind)
 
       let entry = managed.get(ind.id)
       const wantsHistogram = ind.style === 'histogram'
       const needsRecreate =
         entry &&
-        (entry.style !== ind.style ||
-          entry.paneId !== (ind.pane === 'overlay' ? 'overlay' : ind.paneId))
+        (entry.style !== ind.style || entry.paneId !== paneKey)
 
       if (needsRecreate && entry) {
-        chart.removeSeries(entry.series)
+        try {
+          chart.removeSeries(entry.series)
+        } catch {
+          /* ignore */
+        }
         managed.delete(ind.id)
         entry = undefined
       }
@@ -264,11 +303,11 @@ export function ChartPane({
             style: ind.style,
           }
         } else {
-          let pane = panes.get(ind.paneId)
+          let pane = panes.get(paneKey)
           if (!pane) {
             pane = chart.addPane(true)
-            pane.setStretchFactor(1)
-            panes.set(ind.paneId, pane)
+            pane.setStretchFactor(stretchRef.current.separate)
+            panes.set(paneKey, pane)
           }
           const series = wantsHistogram
             ? pane.addSeries(HistogramSeries, {
@@ -285,7 +324,7 @@ export function ChartPane({
               })
           entry = {
             id: ind.id,
-            paneId: ind.paneId,
+            paneId: paneKey,
             series,
             style: ind.style,
           }
@@ -305,11 +344,21 @@ export function ChartPane({
       entry.series.setData(toUtcData(ind.data))
     }
 
-    // Stretch: main bigger when separate panes exist
+    // Apply stretch from active layout preset
     const main = panes.get('main') ?? chart.panes()[0]
     const separateCount = [...panes.keys()].filter((k) => k !== 'main').length
-    main?.setStretchFactor(separateCount > 0 ? 3 : 1)
-  }, [indicators, visibility])
+    main?.setStretchFactor(
+      separateCount > 0 ? stretchRef.current.main : stretchRef.current.main,
+    )
+    for (const [paneId, pane] of panes) {
+      if (paneId === 'main') continue
+      try {
+        pane.setStretchFactor(stretchRef.current.separate)
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [indicators, visibility, mainStretch, separateStretch])
 
   return (
     <div

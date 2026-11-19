@@ -251,6 +251,7 @@ export function StrategyToolbar({
             className="btn primary"
             onClick={onRun}
             disabled={running}
+            title="Atalho: Ctrl+Enter (⌘+Enter no Mac)"
           >
             {running ? 'A executar…' : 'Executar backtest'}
           </button>

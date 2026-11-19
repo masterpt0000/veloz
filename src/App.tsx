@@ -1,7 +1,14 @@
-import { startTransition, useDeferredValue, useEffect, useState } from 'react'
+import {
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useEffectEvent,
+  useState,
+} from 'react'
 import { CandleDownloadPanel } from './components/CandleDownloadPanel'
 import { ChartPane } from './components/ChartPane'
 import { IndicatorLegend } from './components/IndicatorLegend'
+import { LayoutPresetSelect } from './components/LayoutPresetSelect'
 import { ResultsPanel } from './components/ResultsPanel'
 import { RciDcaPanel } from './components/RciDcaPanel'
 import { RunHistoryPanel } from './components/RunHistoryPanel'
@@ -68,6 +75,13 @@ import {
   type StrategyLibrary,
 } from './strategy/strategyStore'
 import { STRATEGY_TEMPLATES } from './strategy/strategyTemplates'
+import {
+  getPreset,
+  layoutPresetCss,
+  loadLayoutPresetId,
+  saveLayoutPresetId,
+  type LayoutPresetId,
+} from './lib/layoutPresets'
 import type { BacktestResult, Timeframe } from './types'
 import './App.css'
 
@@ -129,13 +143,22 @@ export default function App() {
   const [statusToast, setStatusToast] = useState<string | null>(null)
   const [chartSymbols, setChartSymbols] = useState(SYMBOLS)
   const [apiAlert, setApiAlert] = useState<CandlesApiAlert | null>(null)
+  const [layoutPresetId, setLayoutPresetId] = useState<LayoutPresetId>(() =>
+    loadLayoutPresetId(),
+  )
   const candlesLive = isCandlesApiConfigured()
+  const layoutPreset = getPreset(layoutPresetId)
 
   const symbol = chartSymbols.find((s) => s.id === symbolId) ?? chartSymbols[0]
   const code = active.code
   const mode = active.mode
   const simpleConfig = active.simpleConfig
   const builderSpec = active.builderSpec ?? defaultBuilderSpec(active.name)
+
+  function handleLayoutPreset(id: LayoutPresetId) {
+    setLayoutPresetId(id)
+    saveLayoutPresetId(id)
+  }
 
   useEffect(() => {
     if (!statusToast) return
@@ -349,6 +372,22 @@ export default function App() {
     }
   }
 
+  const onRunShortcut = useEffectEvent(() => {
+    if (running || pane === 'builder') return
+    void handleRun()
+  })
+
+  useEffect(() => {
+    if (pane === 'builder') return
+    function onKey(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== 'Enter') return
+      e.preventDefault()
+      onRunShortcut()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pane, onRunShortcut])
+
   const shareHandlers = {
     onExport: handleExport,
     onCopyExport: handleCopyExport,
@@ -500,6 +539,11 @@ export default function App() {
             <span>Volume</span>
           </label>
 
+          <LayoutPresetSelect
+            value={layoutPresetId}
+            onChange={handleLayoutPreset}
+          />
+
           <button
             type="button"
             className="btn ghost"
@@ -581,7 +625,10 @@ export default function App() {
         </div>
       )}
 
-      <main className="workspace workspace-chart">
+      <main
+        className="workspace workspace-chart"
+        style={{ gridTemplateColumns: layoutPresetCss(layoutPreset) }}
+      >
         <section className="chart-section">
           <div className="section-label">
             <span>
@@ -613,6 +660,8 @@ export default function App() {
             indicators={deferredIndicators}
             showVolume={showVolume}
             visibility={indicatorVisibility}
+            mainStretch={layoutPreset.mainStretch}
+            separateStretch={layoutPreset.separateStretch}
           />
         </section>
 

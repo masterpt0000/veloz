@@ -66,21 +66,32 @@ export function normalizeIndicators(
   }
 
   const out: NormalizedIndicator[] = []
+  const seenIds = new Set<string>()
   for (let i = 0; i < raw.length; i++) {
     const item = raw[i] as Partial<StrategyIndicator> | null
     if (!item || typeof item !== 'object') continue
-    const id = String(item.id ?? `ind-${i}`)
+    let id = String(item.id ?? `ind-${i}`).trim() || `ind-${i}`
+    // Uniquify duplicate ids so chart reconcile does not thrash / ghost panes
+    if (seenIds.has(id)) {
+      let n = 2
+      while (seenIds.has(`${id}_${n}`)) n += 1
+      id = `${id}_${n}`
+    }
+    seenIds.add(id)
     const title = String(item.title ?? id)
     const pane = item.pane === 'separate' ? 'separate' : 'overlay'
     if (!item.values || !Array.isArray(item.values)) {
       throw new Error(`Indicador "${id}" precisa de values[]`)
     }
+    const paneIdRaw = String(
+      item.paneId ?? (pane === 'separate' ? id : 'overlay'),
+    ).trim()
 
     out.push({
       id,
       title,
       pane,
-      paneId: String(item.paneId ?? (pane === 'separate' ? id : 'overlay')),
+      paneId: paneIdRaw || (pane === 'separate' ? id : 'overlay'),
       visible: item.visible !== false,
       color: item.color ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length],
       style: item.style === 'histogram' ? 'histogram' : 'line',
